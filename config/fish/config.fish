@@ -137,11 +137,6 @@ fish_add_path "$SPRING_HOME/bin"
 set -gx KOTLIN_HOME "$SDKMAN_CANDIDATES/kotlin/current"
 fish_add_path "$KOTLIN_HOME/bin"
 # === SDKMAN end ===
-# anthropic claude code config
-# set -gx ANTHROPIC_BASE_URL "https://api.deepseek.com/anthropic"
-# set -gx ANTHROPIC_API_KEY (cat $HOME/.secrets/anthropic_api_key | tr -d '\n')
-# set -gx ANTHROPIC_MODEL "deepseek-v4-pro[1M]"
-# set -gx ANTHROPIC_MODEL "deepseek-v4-flash"
 
 # rust
 fish_add_path "$HOME/.cargo/bin"
@@ -185,6 +180,9 @@ set -gx EXA_COLORS "*.mp3=38;2;227;138;174:*.webm=38;2;129;161;193:*.mp3=38;2;12
 # pi agent config
 set -gx PI_OFFLINE 1
 set -gx PI_FFF_MODE "override"
+set -gx PI_FFF_MODE "override"
+set -gx PLANNOTATOR_REMOTE 1
+set -gx PLANNOTATOR_URL_HOST "auto"
 
 if [ -f "$HOME/.local/bin/mise" ]
     $HOME/.local/bin/mise activate fish | source # added by https://mise.run/fish
