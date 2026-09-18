@@ -8,7 +8,7 @@
 
 # Ensure only the whitelisted skill is ever tracked here
 skills/*
-!skills/git-commit-message
+!skills/git-commit-message/
 fff/
 helpers/
 npm/
