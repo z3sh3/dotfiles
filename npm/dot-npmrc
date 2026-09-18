@@ -5,3 +5,4 @@ init-license=MIT
 userconfig=~/.npmrc
 prefix=~/.node_modules
 allow-remote=all
+allow-scripts=@larksuite/cli
