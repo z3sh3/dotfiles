@@ -1,0 +1,23 @@
+{
+  "defaultProvider": "opencode-go",
+  "defaultModel": "deepseek-v4-flash",
+  "hideThinkingBlock": true,
+  "defaultThinkingLevel": "high",
+  "lastChangelogVersion": "0.85.1",
+  "theme": "dark",
+  "quietStartup": true,
+  "packages": [
+    "npm:pi-web-access",
+    "npm:pi-subagents",
+    "npm:pi-mcp-adapter",
+    "npm:context-mode",
+    "npm:pi-lens",
+    "npm:@plannotator/pi-extension",
+    "npm:@ff-labs/pi-fff",
+    "npm:@juicesharp/rpiv-ask-user-question",
+    "npm:@narumitw/pi-goal",
+    "npm:@narumitw/pi-plan-mode",
+    "npm:@injaneity/pi-computer-use",
+    "npm:@pi-kaush/pi-tool-call-markers"
+  ]
+}

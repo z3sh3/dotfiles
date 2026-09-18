@@ -1,0 +1,18 @@
+# ============================================================
+# ~/.dotfiles/pi/agent — mirrors ~/.pi/agent
+#
+# Only skills/git-commit-message is synced (via symlink).
+# Everything else in ~/.pi/agent stays local; the source-side
+# policy lives in ~/.pi/agent/.gitignore. Keep both in sync.
+# ============================================================
+
+# Ensure only the whitelisted skill is ever tracked here
+skills/*
+!skills/git-commit-message
+fff/
+helpers/
+npm/
+plans/
+sessions/
+auth.json
+models-store.json
