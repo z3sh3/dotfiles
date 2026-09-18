@@ -1,3 +1,20 @@
 {
-  "thinkingLevel": "xhigh"
+  "thinkingLevel": "xhigh",
+  "defaultPlanTools": [
+    "read",
+    "bash",
+    "grep",
+    "find",
+    "ls",
+    "web_search",
+    "fetch_content",
+    "ctx_search",
+    "ctx_execute",
+    "ctx_execute_file",
+    "ctx_index",
+    "ctx_fetch_and_index",
+    "ctx_batch_execute",
+    "ctx_stats",
+    "ctx_doctor"
+  ]
 }
