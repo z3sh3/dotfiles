@@ -1,6 +1,6 @@
 {
-  "defaultProvider": "opencode-go",
-  "defaultModel": "deepseek-v4-flash",
+  "defaultProvider": "volcengine-ark",
+  "defaultModel": "glm-5.3",
   "hideThinkingBlock": true,
   "defaultThinkingLevel": "high",
   "lastChangelogVersion": "0.85.1",
