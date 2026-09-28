@@ -1,6 +1,309 @@
 ---@diagnostic disable: undefined-global
 local opt = vim.opt
 local g = vim.g
+
+-- manage plugins (lazy.nvim)
+
+-- bootstrap lazy.nvim
+local lazypath = vim.fn.stdpath("data") .. "/lazy/lazy.nvim"
+if not (vim.uv or vim.loop).fs_stat(lazypath) then
+  local lazyrepo = "https://github.com/folke/lazy.nvim.git"
+  local out = vim.fn.system({ "git", "clone", "--filter=blob:none", "--branch=stable", lazyrepo, lazypath })
+  if vim.v.shell_error ~= 0 then
+    vim.api.nvim_echo({
+      { "Failed to clone lazy.nvim:\n", "ErrorMsg" },
+      { out, "WarningMsg" },
+      { "\nPress any key to exit..." },
+    }, true, {})
+    vim.fn.getchar()
+    os.exit(1)
+  end
+end
+vim.opt.rtp:prepend(lazypath)
+
+local map_opts = { silent = true, nowait = true }
+
+local plugins = {
+  {
+    "kylechui/nvim-surround",
+    version = "*",
+    event = "VeryLazy",
+    keys = { { "ys" }, { "S", mode = "v" }, { "cs" }, { "ds" } },
+    opts = {},
+  },
+  {
+    "numToStr/Comment.nvim",
+    event = "VeryLazy",
+    opts = {},
+  },
+  {
+    "preservim/nerdtree",
+    cmd = { "NERDTreeToggle", "NERDTreeFind" },
+    init = function()
+      g.NERDTreeStatusline = "  "
+      g.NERDTreeWinSize = 40
+      g.NERDTreeQuitOnOpen = 3
+      g.NERDTreeMinimalUI = 1
+      g.NERDTreeHighlightCursorline = 1
+      g.NERDTreeMinimalMenu = 1
+      g.NERDTreeAutoDeleteBuffer = 1
+      g.NERDTreeCaseSensitiveFS = 1
+      g.NERDTreeHighlightCursorline = 1
+      g.NERDTreeShowLineNumbers = 1
+      g.NERDTreeIgnore = {
+        '\\.o$[[file]]', '\\.out$[[file]]', '\\.class$[[file]]', '\\.exe$[[file]]', '\\.jar$[[file]]', '\\.tar$[[file]]', '\\.gz$[[file]]', '\\.7z$[[file]]',
+        '^node_modules$[[dir]]', '^dist$[[dir]]', '^packages$[[dir]]', '^target$[[dir]]', '^__pycache__$[[dir]]'
+      }
+    end,
+    keys = {
+      { "<Tab>", "<cmd>NERDTreeToggle<CR>", map_opts },
+      { "<C-s>", "<cmd>NERDTreeFind<CR>", map_opts },
+    },
+  },
+  {
+    "ibhagwan/fzf-lua",
+    keys = {
+      {
+        "<leader>f", function()
+          require('fzf-lua').files({
+            previewer = false,
+          })
+        end, map_opts
+      },
+      {
+        "<leader>g", function()
+          require("fzf-lua").grep()
+        end, map_opts
+      },
+      {
+        "<leader>l", function()
+          require("fzf-lua").live_grep()
+        end, map_opts
+      },
+      {
+        "<leader>b", function()
+          require("fzf-lua").buffers()
+        end, map_opts
+      },
+    },
+    config = function()
+      require('fzf-lua').setup({
+        'max-perf',
+        fzf_colors = true,
+        fzf_opts = {
+          ["--layout"] = false,
+          ["--ansi"] = true,
+          ["--info"] = "inline-right",
+          ["--height"] = "100%",
+          ["--border"] = "none",
+          ["--highlight-line"] = true,
+        },
+        grep = {
+          RIPGREP_CONFIG_PATH = vim.env.RIPGREP_CONFIG_PATH,
+        },
+        previewers = {
+          bat = {
+            cmd = "bat",
+            args = "--color=always --theme=Nord --style=numbers,changes",
+          },
+        },
+      })
+    end,
+  },
+  {
+    "romus204/tree-sitter-manager.nvim",
+    event = "VeryLazy", -- load after startup so parser installs don't wipe the intro screen
+    dependencies = {}, -- tree-sitter CLI must be installed system-wide
+    config = function()
+      require("tree-sitter-manager").setup({
+        ensure_installed = {
+          "cpp", "diff", "java", "javadoc", "kotlin", "groovy", "dockerfile", "zig", "go", "gomod", "gosum", "html", "html_tags", "htmldjango", "css", "svelte", "comment", "python", "rust", "sql", "javascript", "jsx", "typescript", "tsx", "embedded_template", "yaml", "toml", "bash", "http", "tmux", "xml", "fish", "awk", "jq", "json", "json5", "printf", "cmake", "csv", "dot", "func", "gotmpl", "graphql", "ini", "jsdoc", "luadoc", "make", "nginx", "regex", "requirements", "ssh_config", "strace", "styled", "templ", "todotxt", "vue", "xresources", "mermaid",
+        },
+        noauto_install = {
+          "c", "lua", "markdown", "markdown_inline", "query", "vim", "vimdoc"
+        },
+      })
+    end,
+  },
+  {
+    "saghen/blink.cmp",
+    lazy = true, -- lazy loading handled internally
+    -- optional: provides snippets for the snippet source
+    dependencies = {
+      { "rafamadriz/friendly-snippets" },
+    },
+    -- use a release tag to download pre-built binaries
+    version = "*",
+    opts = {
+      sources = {
+        providers = {
+          buffer = {
+            opts = {
+              get_bufnrs = function()
+                return vim.tbl_filter(function(bufnr)
+                  return vim.bo[bufnr].buftype == ''
+                end, vim.api.nvim_list_bufs())
+              end,
+            },
+          },
+        },
+        default = { "buffer", "lsp", "snippets", "path" },
+      },
+      cmdline = {
+        enabled = false,
+      },
+      signature = { enabled = true },
+      keymap = {
+        ["<CR>"] = { "accept", "fallback" },
+        ["<C-p>"] = { "select_prev", "fallback" },
+        ["<C-n>"] = { "select_next", "fallback" },
+        ["<S-Tab>"] = { "select_prev", "fallback" },
+        ["<Tab>"] = { "select_next", "fallback" },
+        ["<C-j>"] = { "snippet_forward", "fallback" },
+        ["<C-k>"] = { "snippet_backward", "fallback" },
+        ["<C-]>"] = { "scroll_documentation_up", "fallback" },
+        ["<C-[>"] = { "scroll_documentation_down", "fallback" },
+      },
+      completion = {
+        documentation = {
+          auto_show = true,
+          auto_show_delay_ms = 200,
+        },
+        list = {
+          selection = {
+            preselect = false,
+          },
+        },
+        ghost_text = {
+          enabled = false,
+        },
+        trigger = {
+          show_on_insert_on_trigger_character = false,
+        },
+        accept = {
+          auto_brackets = {
+            enabled = false,
+          },
+        },
+      },
+    },
+  },
+  {
+    "windwp/nvim-autopairs",
+    event = "InsertEnter",
+    config = true,
+    init = function()
+      local npairs = require('nvim-autopairs')
+      local Rule = require('nvim-autopairs.rule')
+      local cond = require('nvim-autopairs.conds')
+
+      local brackets = { { '(', ')' }, { '[', ']' }, { '{', '}' }, { '%', '%' }, }
+      -- for spaces between brackets
+      npairs.add_rules {
+        -- Pair will only occur if the conditional function returns true
+        Rule(' ', ' ')
+          :with_pair(function(opts)
+            -- We are checking if we are inserting a space in (), [], {}, %%
+            local pair = opts.line:sub(opts.col - 1, opts.col)
+            return vim.tbl_contains({
+              brackets[1][1] .. brackets[1][2],
+              brackets[2][1] .. brackets[2][2],
+              brackets[3][1] .. brackets[3][2],
+              brackets[4][1] .. brackets[4][2],
+            }, pair)
+          end)
+          :with_move(cond.none())
+          :with_cr(cond.none())
+          -- We only want to delete the pair of spaces when the cursor is as such: ( | )
+          :with_del(function(opts)
+            local col = vim.api.nvim_win_get_cursor(0)[2]
+            local context = opts.line:sub(col - 1, col + 2)
+            return vim.tbl_contains({
+              brackets[1][1] .. '  ' .. brackets[1][2],
+              brackets[2][1] .. '  ' .. brackets[2][2],
+              brackets[3][1] .. '  ' .. brackets[3][2],
+              brackets[4][1] .. '  ' .. brackets[4][2],
+            }, context)
+          end),
+        Rule('<', '>')
+          :with_pair(cond.before_regex("[a-zA-Z'\"]"))
+          :with_move(cond.done()),
+        -- allow " in go json annotation
+        Rule('"', '"', { 'go' })
+          :with_pair(function(opts)
+            if string.find(opts.line, '`') or cond.after_text(":") then
+              return true
+            end
+            return false
+          end)
+          :with_move(cond.none())
+          :with_del(cond.none()),
+        Rule('|', '|', "rust"):with_move(cond.done()),
+        Rule('%', '%', "htmldjango"):with_pair(function()
+          if cond.after_text("{") then
+            return true
+          end
+          return false
+        end),
+      }
+      -- For each pair of brackets we will add another rule
+      for _, bracket in pairs(brackets) do
+        npairs.add_rules {
+          -- Each of these rules is for a pair with left-side '( ' and right-side ' )' for each bracket type
+          Rule(bracket[1] .. ' ', ' ' .. bracket[2])
+          :with_pair(cond.none())
+          :with_move(function(opts) return opts.char == bracket[2] end)
+          :with_del(cond.none())
+          :use_key(bracket[2])
+          -- Removes the trailing whitespace that can occur without this
+          :replace_map_cr(function(_) return '<C-c>2xi<CR><C-c>O' end)
+        }
+      end
+    end,
+  },
+}
+
+-- batch disable built-in plugins
+local disabled_plugins = {
+  "netrw",
+  "netrwPlugin",
+  "netrwSettings",
+  "netrwFileHandlers",
+  "gzip",
+  "zip",
+  "zipPlugin",
+  "tar",
+  "tarPlugin",
+  "getscript",
+  "getscriptPlugin",
+  "vimball",
+  "vimballPlugin",
+  "tohtml",
+  "2html_plugin",
+  "logipat",
+  "rrhelper",
+  "spellfile_plugin",
+  "tutor",
+}
+
+require("lazy").setup(plugins, {
+  git = {
+    log = { "-10" }, -- show commits from the last 10 days
+    timeout = 240,    -- kill processes that take more than 4 minutes
+    filter = true,
+  },
+  rocks = {
+    enabled = false,
+  },
+  checker = { enabled = false },
+  change_detection = { enabled = false },
+  performance = {
+    rtp = {
+      disabled_plugins = disabled_plugins,
+    },
+  },
+})
+
 vim.scriptencoding = 'utf-8'
 opt.encoding = 'utf-8'
 opt.fileencoding = 'utf-8'
@@ -315,32 +618,3 @@ vim.api.nvim_set_hl(0, "StatusLine", { fg = "" })
 vim.api.nvim_set_hl(0, "Normal", { bg = "" })
 vim.opt.statusline = '%r %f%m%=%18(%l,%v/%L%)%24(%{&fileformat}%Y%)%9( %{&fileencoding}%)'
 
--- batch diable built-in plugins
-local disabled_plugins = {
-    "netrw",
-    "netrwPlugin",
-    "netrwSettings",
-    "netrwFileHandlers",
-    "gzip",
-    "zip",
-    "zipPlugin",
-    "tar",
-    "tarPlugin",
-    "getscript",
-    "getscriptPlugin",
-    "vimball",
-    "vimballPlugin",
-    "tohtml",
-    "2html_plugin",
-    "logipat",
-    "rrhelper",
-    "spellfile_plugin",
-    "tutor",
-}
-
-for _, plugin in ipairs(disabled_plugins) do
-    g["loaded_" .. plugin] = 1
-end
-
--- manage plugins
-require("plugins")
