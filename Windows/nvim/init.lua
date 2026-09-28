@@ -267,6 +267,68 @@ local plugins = {
       end
     end,
   },
+  {
+    "rebelot/kanagawa.nvim",
+    event = "VeryLazy",
+    opts = {
+      colors = {
+        palette = {
+          waveRed = "#d08770",
+          peachRed = "#bf616a",
+        },
+        theme = {
+          all = {
+            ui = {
+              float = {
+                bg = "none",
+              },
+              bg_gutter = "none",
+            },
+          },
+        },
+      },
+      overrides = function()
+        return {
+          Boolean = { bold = false, },
+          Todo = { fg = "#ebcb8b", italic = false, bold = true, },
+          Visual = { bg = "#495359", bold = true, },
+          Folded = { fg = "DarkGray", bg = "none", },
+          WinSeparator = { fg = "#4c566a", bg = "none", },
+          StatusLine = { fg = "#587284", bg = "none", bold = true, },
+          DiagnosticError = { fg = "#ef616a", bg = "none", },
+          DiagnosticSignError = { fg = "#ef616a", bg = "none", bold = true },
+          DiagnosticVirtualTextError = { fg = "#ef616a", bg = "none", bold = false },
+          DiagnosticFloatingError = { fg = "#ef616a", bg = "none", bold = false },
+          TabLineFill = { bg = "none" },
+          LspReferenceText = { bg = "#2e3440", underline = false, },
+          LspReferenceRead = { bg = "#2e3440", underline = false, },
+          LspReferenceWrite = { bg = "#2e3440", underline = false, },
+          ["@comment.note"] = { fg = "#a3be8c", bg = "none", bold = true, italic = false, underline = false, },
+          ["@comment.todo"] = { fg = "#ebcb8b", bg = "none", bold = true, italic = true, underline = true, },
+          ["@comment.warning"] = { fg = "#000000", bg = "#ffb300", bold = true, italic = true, underline = true, },
+          ["@comment.error"] = { fg = "#cf616a", bg = "black", bold = true, italic = true, underline = true, },
+          ["@markup.heading.1.markdown"] = { fg = "#ee99a0", bg = "none", bold = true, },
+          ["@markup.heading.2.markdown"] = { fg = "#f5a97f", bg = "none", bold = true, },
+          ["@markup.heading.3.markdown"] = { fg = "#eed49f", bg = "none", bold = true, },
+          ["@markup.heading.4.markdown"] = { fg = "#a6da95", bg = "none", bold = true, },
+          ["@markup.heading.5.markdown"] = { fg = "#7dc4e4", bg = "none", bold = true, },
+          ["@markup.heading.6.markdown"] = { fg = "#b7bdf8", bg = "none", bold = true, },
+          ["@markup.link"] = { fg = "#8fb0ff", bg = "none" },
+          ["@markup.link.url"] = { fg = "#79c0e0", bg = "none", italic = false, underline = true },
+          ["@string.special.url"] = { fg = "#8fbcb9", underdotted = true, },
+          ["@variable.builtin"] = { italic = false },
+          ["@function.builtin"] = { fg = "#5e81ac" },
+        }
+      end,
+      compile = true,
+      commentStyle = { italic = false },
+      keywordStyle = { italic = false },
+      statementStyle = { italic = false, bold = false },
+      typeStyle = { italic = false, bold = false },
+      transparent = true,
+      theme = "wave",
+    },
+  },
 }
 
 -- batch disable built-in plugins
@@ -619,7 +681,7 @@ end, {})
 
 vim.api.nvim_set_keymap('n', '<M-r>', '<cmd>CodeWin<CR>', { noremap = true, silent = true, nowait = true })
 vim.api.nvim_set_keymap('n', '<M-t>', '<cmd>ToggleWin<CR>', { noremap = true, silent = true, nowait = true })
-vim.cmd.colorscheme("catppuccin")
+vim.cmd("colorscheme kanagawa")
 vim.api.nvim_set_hl(0, "StatusLine", { fg = "" })
 vim.api.nvim_set_hl(0, "Normal", { bg = "" })
 vim.opt.statusline = '%r %f%m%=%18(%l,%v/%L%)%24(%{&fileformat}%Y%)%9( %{&fileencoding}%)'
