@@ -3,7 +3,7 @@
   "defaultModel": "glm-5.3",
   "hideThinkingBlock": true,
   "defaultThinkingLevel": "high",
-  "lastChangelogVersion": "0.85.1",
+  "lastChangelogVersion": "0.87.1",
   "theme": "dark",
   "quietStartup": true,
   "packages": [
