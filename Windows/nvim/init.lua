@@ -127,11 +127,17 @@ local plugins = {
   },
   {
     "saghen/blink.cmp",
-    lazy = true, -- lazy loading handled internally
+    -- lazy = true, -- lazy loading handled internally
     -- optional: provides snippets for the snippet source
     dependencies = {
-      { "rafamadriz/friendly-snippets" },
+      'saghen/blink.lib',
+      "rafamadriz/friendly-snippets",
     },
+    build = function()
+      -- build the fuzzy matcher, optionally add a timeout to `pwait(timeout_ms)`
+      -- you can use `gb` in `:Lazy` to rebuild the plugin as needed
+      require('blink.cmp').build():pwait()
+    end,
     -- use a release tag to download pre-built binaries
     version = "*",
     opts = {
