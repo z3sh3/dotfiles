@@ -17,3 +17,4 @@ sessions/
 auth.json
 models-store.json
 models.json
+trust.json
