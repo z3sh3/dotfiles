@@ -164,7 +164,7 @@ require("lazy").setup({
   },
   -- use patched version of emmet-vim as long it's broken for treesitter
   {
-    'z3sh3/emmet-vim',
+    'mattn/emmet-vim',
     event = "VeryLazy",
     init = function ()
       g.user_emmet_mode='iv'
