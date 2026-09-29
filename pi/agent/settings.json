@@ -1,6 +1,6 @@
 {
-  "defaultProvider": "deepseek",
-  "defaultModel": "deepseek-v4-flash",
+  "defaultProvider": "volcengine-ark",
+  "defaultModel": "glm-5.3",
   "hideThinkingBlock": true,
   "defaultThinkingLevel": "high",
   "lastChangelogVersion": "0.87.1",
