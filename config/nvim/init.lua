@@ -62,10 +62,6 @@ require("lazy").setup({
     },
   },
   {
-    'leafOfTree/vim-svelte-plugin',
-    ft = "svelte",
-  },
-  {
     "kylechui/nvim-surround",
     version = "*",
     event = "VeryLazy",
@@ -168,7 +164,7 @@ require("lazy").setup({
   },
   -- use patched version of emmet-vim as long it's broken for treesitter
   {
-    'CengsBlanky/emmet-vim',
+    'z3sh3/emmet-vim',
     event = "VeryLazy",
     init = function ()
       g.user_emmet_mode='iv'
@@ -275,11 +271,6 @@ require("lazy").setup({
     end,
   },
   {
-    'windwp/nvim-ts-autotag',
-    branch = "main",
-    opts = {},
-  },
-  {
     'stevearc/aerial.nvim',
     keys = {
       { "<Space>a", "<cmd>AerialToggle!<CR>", map_opts},
@@ -330,24 +321,12 @@ require("lazy").setup({
     }
   },
   {
-    'saecki/crates.nvim',
-    tag = 'stable',
-    event = { "BufRead Cargo.toml" },
-    opts = {},
-  },
-  {
-    'rust-lang/rust.vim',
-    ft = 'rust',
-    init = function ()
-      g.rustfmt_autosave=  1
-    end
-  },
-  {
     'saghen/blink.cmp',
     lazy = true, -- lazy loading handled internally
     -- optional: provides snippets for the snippet source
     dependencies = {
-      { 'rafamadriz/friendly-snippets' },
+      'saghen/blink.lib',
+      'rafamadriz/friendly-snippets',
     },
     -- use a release tag to download pre-built binaries
     version = '*',
@@ -717,54 +696,6 @@ require("lazy").setup({
         { css = true; },
         { mode = "background" }
       )
-    end,
-  },
-  {
-    "kndndrj/nvim-dbee",
-    cmd = "Dbee",
-    dependencies = {
-      "MunifTanjim/nui.nvim",
-    },
-    build = function()
-      require("dbee").install("go")
-    end,
-    config = function()
-      require("dbee").setup({
-        sources = {
-          require("dbee.sources").FileSource:new(vim.fn.expand("$HOME/.config/dbee/conns.json")),
-        },
-        result = {
-          focus_result = false,
-        },
-        editor = {
-          mappings = {
-            { key = "<space>r", mode = "v", action = "run_selection" },
-            { key = "<space>r", mode = "n", action = "run_under_cursor" },
-          },
-        },
-      })
-    end,
-  },
-  {
-    "nvzone/typr",
-    dependencies = "nvzone/volt",
-    opts = {},
-    cmd = { "Typr", "TyprStats" },
-  },
-  {
-    "tpope/vim-obsession",
-  },
-  {
-    'glacambre/firenvim',
-    build = ":call firenvim#install(0)",
-    init = function ()
-      vim.g.firenvim_config = {
-        localSettings = {
-          ['.*'] = {
-            takeover = 'never',
-          },
-        },
-      }
     end,
   },
 },
