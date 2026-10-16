@@ -605,16 +605,6 @@ require("lazy").setup({
     end,
   },
   {
-    "toppair/peek.nvim",
-    ft = "markdown",
-    build = "deno task --quiet build:fast",
-    config = function()
-      require("peek").setup()
-      vim.api.nvim_create_user_command("PeekOpen", require("peek").open, {})
-      vim.api.nvim_create_user_command("PeekClose", require("peek").close, {})
-    end,
-  },
-  {
     'numToStr/Navigator.nvim',
     config = true,
     keys = {
@@ -686,16 +676,6 @@ require("lazy").setup({
       transparent = true,
       theme = "wave",
     },
-  },
-  {
-    "catgoose/nvim-colorizer.lua",
-    config = function()
-      require("colorizer").setup(
-        { "html", "css", "javascript", "typescript", "javascriptreact", "typescriptreact", "tmux", "lua", "vim", "toml", "cpp", "conf", "zathurarc" },
-        { css = true; },
-        { mode = "background" }
-      )
-    end,
   },
 },
 {
