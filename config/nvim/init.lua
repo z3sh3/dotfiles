@@ -162,7 +162,6 @@ require("lazy").setup({
     end,
     opts = {}
   },
-  -- use patched version of emmet-vim as long it's broken for treesitter
   {
     'mattn/emmet-vim',
     event = "VeryLazy",

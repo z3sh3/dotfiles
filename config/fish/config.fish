@@ -192,3 +192,7 @@ end
 set -gx PNPM_HOME '/home/zeng/.local/share/pnpm'
 fish_add_path "$PNPM_HOME/bin"
 # pnpm end
+
+# QODER_DISPATCHER_PATH v1
+fish_add_path -p -m $HOME/.qoder/entry
+# END QODER_DISPATCHER_PATH v1

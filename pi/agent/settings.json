@@ -3,13 +3,10 @@
   "defaultModel": "glm-5.3",
   "hideThinkingBlock": true,
   "defaultThinkingLevel": "high",
-  "lastChangelogVersion": "0.87.1",
+  "lastChangelogVersion": "1.1.0",
   "theme": "dark",
   "quietStartup": true,
   "packages": [
-    "npm:pi-web-access",
-    "npm:pi-subagents",
-    "npm:pi-mcp-adapter",
     "npm:context-mode",
     "npm:pi-lens",
     "npm:@plannotator/pi-extension",
@@ -18,6 +15,8 @@
     "npm:@narumitw/pi-goal",
     "npm:@narumitw/pi-plan-mode",
     "npm:@injaneity/pi-computer-use",
-    "npm:@pi-kaush/pi-tool-call-markers"
+    "npm:@pi-kaush/pi-tool-call-markers",
+    "npm:pi-web-access",
+    "npm:pi-subagents"
   ]
 }

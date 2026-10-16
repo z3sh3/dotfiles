@@ -66,9 +66,6 @@ g.markdown_fenced_languages = {
 }
 g.java_ignore_markdown = 1
 vim.filetype.add({
-  pattern = {
-    ['.*/templates/.*/*.html'] = 'htmldjango',
-  },
   extension = {
     ['log'] = 'log',
   },
