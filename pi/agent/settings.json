@@ -1,4 +1,5 @@
 {
+  "externalEditor": "nvim",
   "defaultProvider": "volcengine-ark",
   "defaultModel": "glm-5.3",
   "hideThinkingBlock": true,
