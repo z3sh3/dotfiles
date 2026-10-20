@@ -19,3 +19,4 @@ models-store.json
 models.json
 trust.json
 pi-subagents/
+web-search-cache/

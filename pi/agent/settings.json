@@ -1,7 +1,7 @@
 {
   "externalEditor": "nvim",
-  "defaultProvider": "volcengine-ark",
-  "defaultModel": "glm-5.3",
+  "defaultProvider": "deepseek",
+  "defaultModel": "deepseek-flash",
   "hideThinkingBlock": true,
   "defaultThinkingLevel": "high",
   "lastChangelogVersion": "1.3.0",
