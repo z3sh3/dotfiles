@@ -22,6 +22,8 @@ export GTK_IM_MODULE=fcitx
 export QT_IM_MODULE=fcitx
 export XMODIFIERS=@im=fcitx
 export SDL_IM_MODULE=fcitx
+# kitty (X11) only supports IME through the IBus protocol, it has no XIM client
+export GLFW_IM_MODULE=ibus
 # ensure mpc or ncmpcpp get correct socket
 export MPD_HOST="$HOME/.config/mpd/socket"
 # for dunst running by user systemd
