@@ -1,5 +1,5 @@
 emacs/.emacs.d/elpa/
-kitty
+/kitty
 helix/runtime
 **/*.swp
 config/fish/completions/*
