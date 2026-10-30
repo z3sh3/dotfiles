@@ -62,6 +62,57 @@ function Remove-Dir {
     Remove-Item -Force -Recurse $path
 }
 
+# `rm` accepting multiple files/directories. The built-in `rm` alias must be
+# removed because aliases win over functions in PowerShell's command lookup.
+Remove-Item Alias:rm -Force -ErrorAction SilentlyContinue
+
+# Deletes files and/or directories. Prompts for confirmation only when more
+# than one item would be deleted; a single item is removed without asking.
+function rm {
+    param(
+        [Parameter(ValueFromRemainingArguments = $true, Mandatory = $true)]
+        [string[]]$Path
+    )
+
+    if ($Path.Count -eq 0) {
+        Write-Error 'rm: missing operand'
+        return
+    }
+
+    $targets = @(
+        foreach ($p in $Path) {
+            $item = Get-Item -Path $p -Force -ErrorAction SilentlyContinue
+            if ($null -eq $item) {
+                Write-Warning "rm: no such file or directory: $p"
+            }
+            else {
+                $item
+            }
+        }
+    )
+    $targets = @($targets | Sort-Object -Property FullName -Unique)
+
+    if ($targets.Count -eq 0) { return }
+
+    if ($targets.Count -gt 1) {
+        $targets | ForEach-Object { Write-Host "  $($_.FullName)" }
+        $answer = Read-Host "rm: delete these $($targets.Count) items? [y/N]"
+        if ($answer -notmatch '^(y|yes)$') {
+            Write-Host 'rm: cancelled'
+            return
+        }
+    }
+
+    foreach ($t in $targets) {
+        try {
+            Remove-Item -LiteralPath $t.FullName -Recurse -Force -ErrorAction Stop
+        }
+        catch {
+            Write-Warning "rm: cannot remove '$($t.FullName)': $($_.Exception.Message)"
+        }
+    }
+}
+
 function Make-Tags {
     rg --files | ctags -R --links=no -L -
 }
@@ -213,6 +264,73 @@ function Update-Winget {
     }
 }
 
+# ------------------------------------------------------------- ls -lAh style
+# `ll` mimics GNU `ls -lAh`: long format, hidden items included, human readable
+# sizes. `l` stays the plain listing (an alias of `ls`).
+function Format-Size {
+    param([long]$Bytes)
+
+    if     ($Bytes -ge 1TB) { '{0,5:0.#}T' -f ($Bytes / 1TB) }
+    elseif ($Bytes -ge 1GB) { '{0,5:0.#}G' -f ($Bytes / 1GB) }
+    elseif ($Bytes -ge 1MB) { '{0,5:0.#}M' -f ($Bytes / 1MB) }
+    elseif ($Bytes -ge 1KB) { '{0,5:0.#}K' -f ($Bytes / 1KB) }
+    else                    { '{0,6}'      -f $Bytes }
+}
+
+function Get-LsLong {
+    [CmdletBinding()]
+    param(
+        [PSDefaultValue(Help = "default pwd")]
+        [string]$Path = '.'
+    )
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        Write-Error "ll: cannot access '$Path': No such file or directory"
+        return
+    }
+
+    $items = Get-ChildItem -LiteralPath $Path -Force
+    if ($null -eq $items) { return }
+
+    # Only colourise when the output goes straight to the console: a line feeding
+    # another command must stay plain, otherwise the escape bytes end up in files.
+    # $PSStyle does not exist before PowerShell 7.
+    $useColor = ($PSVersionTable.PSVersion.Major -ge 7) -and ($MyInvocation.PipelineLength -eq 1)
+    if ($useColor) {
+        $dirPrefix = $PSStyle.FileInfo.Directory
+        $reset = $PSStyle.Reset
+    }
+
+    # One line per entry: timestamp, size, name. There is no leading permission
+    # column because `Mode` on Windows only exposes file attributes (hidden,
+    # system, read-only, ...), not POSIX permissions, so it says nothing useful.
+    # Directories are distinguished by the `-` placeholder plus the name colour.
+    #
+    # The size tiers are inlined instead of calling Format-Size: a PowerShell
+    # function call costs ~25 us and dominated the loop (51 ms of the 112 ms
+    # measured on a 2050 item directory), while the `-f` operator is ~0.4 us/line.
+    foreach ($item in $items) {
+        if ($item.PSIsContainer) {
+            $size = '     -'
+            $name = if ($useColor) { "$dirPrefix$($item.Name)$reset" } else { $item.Name }
+        }
+        else {
+            $len = $item.Length
+            if     ($len -ge 1TB) { $size = '{0,5:0.#}T' -f ($len / 1TB) }
+            elseif ($len -ge 1GB) { $size = '{0,5:0.#}G' -f ($len / 1GB) }
+            elseif ($len -ge 1MB) { $size = '{0,5:0.#}M' -f ($len / 1MB) }
+            elseif ($len -ge 1KB) { $size = '{0,5:0.#}K' -f ($len / 1KB) }
+            else                  { $size = '{0,6}'      -f $len }
+            $name = $item.Name
+        }
+
+        '{0} {1} {2}' -f $item.LastWriteTime.ToString('yyyy-MM-dd HH:mm:ss'),
+                         $size,
+                         $name
+    }
+}
+# -----------------------------------------------------------------------------
+
 Set-Alias tmp Edit-TmpVim
 
 Set-Alias which Get-Command
@@ -223,7 +341,9 @@ Set-Alias cdd Cd-D
 
 Set-Alias open Open-Item
 
-Set-Alias l dir
+# `l` is the plain directory listing; `ll` is the `ls -lAh` style long listing
+Set-Alias l ls
+Set-Alias ll Get-LsLong
 
 # Directory listings: draw directory names as bold blue text on the default background.
 # The default PSStyle value (ESC[44;1m) paints a blue background block instead.
@@ -391,4 +511,154 @@ function global:prompt {
     }
 
     "$marksStart$pathPart$gitPart$statusPart`n${esc}[38;2;152;195;121m$reset ${marksEnd}"
+}
+
+
+
+# ---- YouTube playback helpers (ported from ~/.dotfiles/config/fish/functions) ----
+
+function Get-ProxyAddr {
+    # First line starting with "socks" in ~/proxy.info (socks5 is the default)
+    $file = Join-Path $HOME 'proxy.info'
+    if (Test-Path $file) {
+        $line = Select-String -Path $file -Pattern '^socks' -List | Select-Object -First 1
+        if ($line) { return $line.Line.Trim() }
+    }
+    return ''
+}
+
+function Get-NoProxySites {
+    $file = Join-Path $HOME '.dotfiles\firefox\noproxy.txt'
+    if (-not (Test-Path $file)) { return @() }
+    (Get-Content $file -Raw) -split '[,\r\n]+' | ForEach-Object { $_.Trim() } | Where-Object { $_ }
+}
+
+function Test-NoProxyUrl {
+    param([string]$Url)
+    foreach ($site in Get-NoProxySites) {
+        if ($Url -like "*$site*") { return $true }
+    }
+    return $false
+}
+
+function Get-YtMetaTitle {
+    param([string]$Url, [string]$Proxy)
+    $raw = (& yt-dlp --proxy="$Proxy" --remote-components ejs:npm --cookies-from-browser firefox -j $Url 2>$null) -join "`n"
+    if (-not $raw) { return $null }
+    try {
+        $meta = $raw | ConvertFrom-Json
+    } catch {
+        return $null
+    }
+    # Strip double quotes so the value survives the cmd pipeline unchanged
+    return ('{0} - {1}' -f $meta.title, $meta.uploader) -replace '"', ''
+}
+
+function Invoke-YListen {
+    param([string]$Url, [string]$Proxy)
+    if (-not $Url) { return }
+    if (Test-NoProxyUrl $Url) {
+        & mpv --no-video $Url
+        return
+    }
+    Write-Host "using proxy: $Proxy"
+    $title = Get-YtMetaTitle -Url $Url -Proxy $Proxy
+    if (-not $title) {
+        Write-Host "Failed to fetch metadata: $Url"
+        return
+    }
+    $mpv = @(
+        'mpv', '--no-video',
+        "--term-playing-msg=`"$title`"",
+        '--cache-secs=300',
+        '--demuxer-max-bytes=64MiB',
+        '--demuxer-max-back-bytes=32MiB',
+        '--force-seekable=yes',
+        '-'
+    )
+    $yt = @(
+        'yt-dlp', '-q', '--no-warnings',
+        "--proxy=`"$Proxy`"",
+        '--cookies-from-browser firefox',
+        '--format', 'worstaudio',
+        '--remote-components', 'ejs:npm',
+        '--remote-components', 'ejs:github',
+        '-o', '-',
+        "`"$Url`""
+    )
+    # Pipe through cmd so the audio stream stays binary
+    & cmd /c (($yt -join ' ') + ' | ' + ($mpv -join ' '))
+}
+
+function ting {
+    $proxy = Get-ProxyAddr
+    if ($args.Count -ge 1 -and (Test-Path -LiteralPath $args[0] -PathType Leaf)) {
+        foreach ($url in (Get-Content -LiteralPath $args[0])) {
+            $url = $url.Trim()
+            if ($url) { Invoke-YListen -Url $url -Proxy $proxy }
+        }
+        return
+    }
+    if ($args.Count -ge 1) {
+        Invoke-YListen -Url $args[0] -Proxy $proxy
+    }
+}
+
+function kan {
+    if ($args.Count -lt 1) {
+        Write-Host 'provide a url to play'
+        return 1
+    }
+    $url = $args[0]
+    if (Test-NoProxyUrl $url) {
+        & mpv $url
+        return
+    }
+    $proxy = Get-ProxyAddr
+    Write-Host "using proxy: $proxy"
+    $title = Get-YtMetaTitle -Url $url -Proxy $proxy
+    if (-not $title) {
+        Write-Host 'Failed to fetch metadata'
+        return 1
+    }
+    $mpv = @(
+        'mpv',
+        "--force-media-title=`"$title`"",
+        '--force-seekable=yes',
+        '-'
+    )
+    $yt = @(
+        'yt-dlp', '-q', '--no-warnings',
+        "--proxy=`"$proxy`"",
+        '--cookies-from-browser firefox',
+        '--remote-components', 'ejs:npm',
+        '--format', '"best[height<=720]/best[height<=480]/best[height<=1080]/best"',
+        '--embed-subs',
+        '-o', '-',
+        "`"$url`""
+    )
+    & cmd /c (($yt -join ' ') + ' | ' + ($mpv -join ' '))
+}
+
+# Common yt-dlp options (cookies, remote-components) come from the default
+# per-user config, loaded via ~/.dotfiles/config/yt-dlp/config; only the
+# format/output specifics are passed here.
+function yt-video {
+    $proxy = Get-ProxyAddr
+    $out = 'D:\yt-download\Video\%(title)s.%(ext)s'
+    if ($proxy) {
+        & yt-dlp --proxy $proxy --embed-subs -o $out @args
+    } else {
+        & yt-dlp --embed-subs -o $out @args
+    }
+}
+
+function yt-audio {
+    $proxy = Get-ProxyAddr
+    $out = 'D:\yt-download\Music\%(title)s.%(ext)s'
+    if ($proxy) {
+        & yt-dlp --proxy $proxy --format bestaudio -o $out @args
+    } else {
+        & yt-dlp --format bestaudio -o $out @args
+    }
 }
