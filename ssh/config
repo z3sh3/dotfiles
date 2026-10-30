@@ -1,5 +1,8 @@
-# delete this line when use
-AddKeysToAgent yes
 Host *
-    PreferredAuthentications publickey
-    IdentityFile ~/.ssh/<private key>
+    StrictHostKeyChecking accept-new
+    UserKnownHostsFile ~/.ssh/known_hosts
+Host github.com
+    Hostname ssh.github.com
+    ProxyCommand nc -X 5 -x 127.0.0.1:7897 %h %p
+    Port 443
+    User git
