@@ -217,18 +217,7 @@ require("lazy").setup({
           hover = {
             enable = false,
           },
-          custom_filter = function(buf_number, _)
-            local ignore_suffix = "kulala_ui"
-            if vim.bo[buf_number].filetype:sub(-#ignore_suffix) == ignore_suffix then
-              return false
-            end
-            local ignore_ft = { qf = true, }
-            if ignore_ft[vim.bo[buf_number].filetype] then
-              return false
-            end
-            return true
-          end,
-        }
+        },
       }
     end,
   },
@@ -290,7 +279,7 @@ require("lazy").setup({
         'williamboman/mason.nvim',
         build = function()
           local ensure_installed = {
-            "biome", "clang-format", "ruff", "djlint", "ktfmt", "prettierd", "shfmt", "sqruff", "stylua", "taplo", "nginx-config-formatter", "kulala-fmt"
+            "biome", "clang-format", "ruff", "djlint", "ktfmt", "prettierd", "shfmt", "sqruff", "stylua", "taplo", "nginx-config-formatter",
           }
           local mason_registry = require("mason-registry")
           local pkgs_to_install = {}
@@ -418,8 +407,6 @@ require("lazy").setup({
         jsonc = { "oxfmt" },
         vue = { "oxfmt" },
         markdown = { "oxfmt" },
-        http = { "kulala-fmt" },
-        rest = { "kulala-fmt" },
         json = { "jq" },
         yaml = { "oxfmt" },
         toml = { "taplo" },
