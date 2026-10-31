@@ -1,0 +1,221 @@
+# PowerShell-native lfrc -- the counterpart of ./lfrc, which uses Git Bash.
+#
+# Two rules separate it from a POSIX lfrc:
+#
+# 1. lf exports its context (f, fs, fx, fv, id, OPENER, EDITOR, user options) as
+#    *environment variables*. A POSIX shell expands $f straight from the
+#    environment; PowerShell has no such shortcut, so every reference has to be
+#    $env:f.
+#
+# 2. On Windows lf spawns  exec.Command(shell, shellflag, body, args...)  with no
+#    "IFS='...'; " prefix (that prefix exists only in the Unix shellCommand,
+#    which is why `ifs` is documented as a no-op here). PowerShell then
+#    concatenates those extra argv onto the command text, so invoking a command
+#    as ":zip foo" does not pass foo as a parameter: foo is appended as *source*
+#    on the line after the body and parsed as a statement. Two consequences:
+#
+#      * a body whose very last character is `#` turns whatever lf appends into a
+#        comment, so bodies that can be typed with an argument are written on one
+#        line ending with `#}}` -- a multi-line body ends in a newline and cannot
+#        protect itself;
+#      * the safe way to ask for a name is a `%` body that reads stdin: lf
+#        forwards the next command-line input to the command's stdin, which is
+#        data and never code.
+#
+# Key-mapped commands are spawned with no arguments at all, so they may keep
+# multi-line bodies.
+#
+# A body must not contain two consecutive closing braces: lf's scanner ends the
+# template at the first `}}` it sees.
+
+set watch true
+set number true
+set relativenumber true
+set incsearch true
+set timefmt "2006-01-02 15:04 Mon"
+set icons true
+set truncatechar "*"
+set sortby time
+set reverse
+
+# "pwsh" on its own works too (Go resolves it through PATH and PATHEXT).
+set shell "C:/Program Files/PowerShell/7/pwsh.exe"
+set shellflag -c
+# shellopts are prepended, so this lands before -c: a profile could print to the
+# statline or move the session off lf's directory (lf chdirs its child into the
+# directory it displays).
+set shellopts -NoProfile
+
+# A `set` value is a single token, so anything with a space has to be quoted --
+# and an unquoted one aborts the parse here, silently dropping every statement
+# after it (lf logs `error: unexpected token:` to its -log file and stops
+# reading). The paths below are quoted even where they happen to have no space.
+set user_7z "C:/Program Files/7-Zip/7z.exe"
+# bsdtar, shipped in System32: reads and writes zip and every tar flavour, and
+# unlike Git's GNU tar it accepts absolute Windows paths.
+set user_bsdtar "C:/Windows/System32/tar.exe"
+# extensions that are text even when the byte sniff would disagree
+set user_text_exts .txt,.md,.markdown,.json,.jsonl,.yaml,.yml,.toml,.ini,.cfg,.conf,.csv,.tsv,.log,.xml,.html,.css,.js,.mjs,.ts,.jsx,.tsx,.py,.ps1,.psm1,.sh,.bash,.c,.cpp,.h,.hpp,.go,.rs,.java,.cs,.rb,.php,.pl,.lua,.sql,.cmake,.gitignore,.editorconfig
+
+map <c-j> page-down
+map <c-k> page-up
+nmap <space> :toggle
+
+### USAGE ###
+# y copy, d cut, p paste, c clear, D delete  (lf built-ins: no shell involved)
+# <enter>/o/l open, w new file, a mkdir, z zip, R bulk rename
+
+# Open the highlighted file. lf resolves directories itself before this command
+# is ever called (its built-in open cds when the file IsDir()), so only files
+# reach here.
+#
+# The '$' prefix is what keeps Neovim in this terminal: for '$' and '!' lf hands
+# the child its own stdin/stdout/stderr and pauses the UI until the child exits
+# (app.go: runShell -> runCmdSync -> ui.suspend), so a TUI paints the real
+# screen and lf redraws afterwards. No "lf -remote send" detour is needed --
+# that trick only exists because the Git Bash version of this command is
+# declared '&', which has no standard I/O at all.
+cmd open ${{
+    $f = $env:f
+
+    # Known-text extensions win outright: the sniff below cannot tell a GB18030
+    # source file from data, and it treats UTF-16 as binary.
+    $exts = $env:lf_user_text_exts -split ','
+    $isText = $exts -contains [IO.Path]::GetExtension($f).ToLowerInvariant()
+
+    if (-not $isText) {
+        # Classify the way git and vim do: a NUL byte in the leading window
+        # means binary. No external `file` utility needed.
+        $s = [IO.File]::OpenRead($f)
+        try {
+            $buf = New-Object byte[] 8192
+            $n = $s.Read($buf, 0, $buf.Length)
+            $isText = $true
+            for ($i = 0; $i -lt $n; $i = $i + 1) {
+                if ($buf[$i] -eq 0) { $isText = $false; break }
+            }
+        } finally {
+            $s.Dispose()
+        }
+    }
+
+    if ($isText) {
+        nvim $f
+    } elseif ($env:OPENER -and $env:OPENER -ne 'start ""') {
+        # OPENER's lf default is cmd.exe syntax, so only honour a set value
+        & cmd.exe /c "$env:OPENER `"$f`""
+    } else {
+        Invoke-Item -LiteralPath $f
+    }
+}}
+
+# Extract the current archive. bsdtar takes zip and every tar flavour, 7-Zip
+# takes rar/7z. None of this needs Git.
+cmd decompress ${{
+    $f = $env:f
+    switch -Regex ($f) {
+        '\.(tar\.bz2?|tbz2?)$' { & $env:lf_user_bsdtar -xjvf $f }
+        '\.(tar\.gz|tgz)$'     { & $env:lf_user_bsdtar -xzvf $f }
+        '\.(tar\.xz|txz)$'     { & $env:lf_user_bsdtar -xJvf $f }
+        '\.zip$'               { & $env:lf_user_bsdtar -xvf $f }
+        '\.(rar|7z)$'          { & $env:lf_user_7z x -y $f }
+    }
+}}
+
+# These four take a name from the user, so they are one-line `%` bodies reading
+# stdin, each ending with '#' to neutralise whatever lf appends. Relative paths
+# are correct because lf chdirs its child into the displayed directory, and the
+# [IO...] calls take names literally (New-Item has no -LiteralPath and would
+# treat [ ] as wildcards).
+cmd touch %{{ $n = [Console]::In.ReadLine(); if ($n -and -not [IO.File]::Exists($n) -and -not [IO.Directory]::Exists($n)) { [IO.File]::Create($n).Dispose() } #}}
+cmd mkdir %{{ $n = [Console]::In.ReadLine(); if ($n) { [IO.Directory]::CreateDirectory($n) | Out-Null } #}}
+cmd zip %{{ $n = [Console]::In.ReadLine(); if ($n) { $b = @($env:fx -split "\r?\n" | Where-Object { $_ }); if ($b.Count) { Compress-Archive -LiteralPath $b -DestinationPath "$n.zip" -Force } } #}}
+cmd compress %{{ $n = [Console]::In.ReadLine(); if ($n) { $b = @($env:fx -split "\r?\n" | Where-Object { $_ } | ForEach-Object { [IO.Path]::GetFileName($_) }); if ($b.Count) { & $env:lf_user_bsdtar -czf "$n.tar.gz" $b } } #}}
+
+# Rename the selection through the configured editor. '$' keeps the terminal, so
+# a console editor can edit the name list in place.
+cmd bulk-rename ${{
+    $paths = @($env:fs -split "\r?\n" | Where-Object { $_ })
+    if ($paths.Count -eq 0) { exit }
+
+    $list = New-TemporaryFile
+    try {
+        $paths | ForEach-Object { [IO.Path]::GetFileName($_) } | Set-Content -LiteralPath $list
+        Start-Process -FilePath $env:EDITOR -ArgumentList "`"$list`"" -NoNewWindow -Wait
+
+        $names = @(Get-Content -LiteralPath $list)
+        for ($i = 0; $i -lt $paths.Count; $i = $i + 1) {
+            $to = $names[$i].Trim()
+            $from = $paths[$i]
+            if (-not $to -or $to -eq [IO.Path]::GetFileName($from)) { continue }
+            $dst = Join-Path ([IO.Path]::GetDirectoryName($from)) $to
+            if (Test-Path -LiteralPath $dst) { continue }
+            Move-Item -LiteralPath $from -Destination $dst
+        }
+    } finally {
+        Remove-Item -LiteralPath $list -Force
+    }
+
+    & lf -remote "send $env:id unselect"
+    & lf -remote "send $env:id visual-discard"
+}}
+
+# Copy the selection into the current directory, then drop the originals.
+cmd cutselect %{{
+    $paths = @($env:fs -split "\r?\n" | Where-Object { $_ })
+    foreach ($p in $paths) {
+        $dst = Join-Path (Get-Location).Path ([IO.Path]::GetFileName($p))
+        if ($dst -eq $p) { continue }
+        if (Test-Path -LiteralPath $dst) {
+            Write-Output "target exists: $dst (y/N)"
+            if ([Console]::In.ReadLine() -ne 'y') { continue }
+        }
+        Copy-Item -LiteralPath $p -Destination $dst -Recurse
+        Remove-Item -LiteralPath $p -Recurse -Force
+    }
+    & lf -remote "send $env:id unselect"
+}}
+
+cmd visual-toggle &{{
+    foreach ($file in ($env:fv -split "\r?\n" | Where-Object { $_ })) {
+        & lf -remote "send $env:id toggle `"$file`""
+    }
+    & lf -remote "send $env:id visual-discard"
+}}
+
+### THE cmd.exe BUILT-INS, IN POWERShell FORM ###
+# lf's Windows defaults are written in cmd.exe syntax: `%EDITOR% %f%` for `e`,
+# `%PAGER% %f%` for `i`, `%lf% -doc | %PAGER%` for `help`, and
+# `%lf% -remote "query %id% maps"` for the query commands. PowerShell does not
+# expand %VAR%, so all of those fail as soon as `shell` is pwsh. `$` gives the
+# child the terminal, which is what a console editor or pager needs (EDITOR and
+# PAGER are inherited from the environment, and here they are nvim and cat).
+cmd edit ${{ & $env:EDITOR $env:f }}
+cmd peek ${{ & $env:PAGER $env:f }}
+cmd help ${{ lf -doc | & $env:PAGER }}
+cmd maps ${{ lf -remote "query $env:id maps" | & $env:PAGER }}
+cmd nmaps ${{ lf -remote "query $env:id nmaps" | & $env:PAGER }}
+cmd vmaps ${{ lf -remote "query $env:id vmaps" | & $env:PAGER }}
+cmd cmaps ${{ lf -remote "query $env:id cmaps" | & $env:PAGER }}
+cmd cmds ${{ lf -remote "query $env:id cmds" | & $env:PAGER }}
+
+map D delete
+map <enter> open
+map o open
+map l open
+map w push :touch<enter>
+map a push :mkdir<enter>
+map z push :zip<enter>
+map R bulk-rename
+vmap <space> visual-toggle
+vmap d cutselect
+map c cutselect
+vmap c cutselect
+# 'c' above shadows the default 'clear' binding, keep the buffer reachable
+map C clear
+# the built-in e/i bindings embed the cmd.exe syntax directly, so they have to be
+# rebound to the rewrites above rather than merely redefining the commands
+nmap e edit
+nmap i peek
+vmap e edit
+vmap i peek
