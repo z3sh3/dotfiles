@@ -485,7 +485,13 @@ function global:prompt {
         else { $markDone = '' }
         $global:PromptMarksStarted = $true
 
-        $marksStart = "$markDone${esc}]133;A${bel}${esc}]9;9;`"$loc`"${bel}"
+        # TUIs such as nvim reset the cursor with the terminfo "Se" capability, which the
+        # xterm entry defines as ESC[2 q (solid block), so their exit leaves a box here even
+        # though the profile says "bar". Windows Terminal does implement ESC[0 q as "restore
+        # my profile cursorShape", so re-assert it on every prompt.
+        $cursorReset = "${esc}[0 q"
+
+        $marksStart = "$markDone${esc}]133;A${bel}${esc}]9;9;`"$loc`"${bel}$cursorReset"
         $marksEnd = "${esc}]133;B${bel}"
     }
 
@@ -541,66 +547,141 @@ function Test-NoProxyUrl {
     return $false
 }
 
-function Get-YtMetaTitle {
-    param([string]$Url, [string]$Proxy)
-    $raw = (& yt-dlp --proxy="$Proxy" --remote-components ejs:npm --cookies-from-browser firefox -j $Url 2>$null) -join "`n"
-    if (-not $raw) { return $null }
-    try {
-        $meta = $raw | ConvertFrom-Json
-    } catch {
-        return $null
-    }
-    # Strip double quotes so the value survives the cmd pipeline unchanged
-    return ('{0} - {1}' -f $meta.title, $meta.uploader) -replace '"', ''
-}
-
-function Invoke-YListen {
-    param([string]$Url, [string]$Proxy)
-    if (-not $Url) { return }
-    if (Test-NoProxyUrl $Url) {
-        & mpv --no-video $Url
-        return
-    }
-    Write-Host "using proxy: $Proxy"
-    $title = Get-YtMetaTitle -Url $Url -Proxy $Proxy
-    if (-not $title) {
-        Write-Host "Failed to fetch metadata: $Url"
-        return
-    }
-    $mpv = @(
-        'mpv', '--no-video',
-        "--term-playing-msg=`"$title`"",
-        '--cache-secs=300',
-        '--demuxer-max-bytes=64MiB',
-        '--demuxer-max-back-bytes=32MiB',
-        '--force-seekable=yes',
-        '-'
+# Stream yt-dlp output into mpv through a Windows named pipe (a real FIFO),
+# so stdin stays attached to the terminal and mpv's keyboard control keeps
+# working (`yt-dlp | mpv -` steals stdin and silently disables input).
+# Byte path: yt-dlp stdout -> temp file -> this pump -> \\.\pipe\<name> -> mpv.
+# We are the pipe SERVER (Out direction) because an outbound named pipe only
+# lets clients read; the pump runs on the main thread, so a blocking write is
+# released automatically when mpv exits (Ctrl+C, `q`, or end of media).
+# The media URL handed to mpv is prefixed with `lavf://`: mpv's own file
+# protocol mangles \\.\pipe\... into \\pipe\... (CreateFile fails with
+# ERROR_INVALID_PARAMETER), while the libavformat demuxer opens the raw
+# pipe path fine and signals EOF once our last writer handle closes.
+function Invoke-MpvFromYtStream {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Url,
+        [string]$Proxy = '',
+        [string]$Format = 'worstaudio',
+        [string[]]$MpvOptions = @()
     )
-    $yt = @(
-        'yt-dlp', '-q', '--no-warnings',
-        "--proxy=`"$Proxy`"",
-        '--cookies-from-browser firefox',
-        '--format', 'worstaudio',
+
+    $pipeName = 'qoder-yt-' + [guid]::NewGuid().ToString('N').Substring(0, 12)
+    $pipePath = '\\.\pipe\' + $pipeName
+    $tmpDir   = [System.IO.Path]::GetTempPath()
+    $inFile   = Join-Path $tmpDir "$pipeName.bin"
+    $errFile  = Join-Path $tmpDir "$pipeName.err"
+
+    # `-o -` makes yt-dlp write the raw media bytes to stdout; Start-Process
+    # redirects that stdout into $inFile, so the temp file has exactly one
+    # writer and the pump below can tail it. (-q keeps stdout free of messages.)
+    $ytArgs = @(
+        '-q', '--no-warnings',
         '--remote-components', 'ejs:npm',
         '--remote-components', 'ejs:github',
-        '-o', '-',
-        "`"$Url`""
+        '--cookies-from-browser', 'firefox',
+        '--format', $Format,
+        '-o', '-'
     )
-    # Pipe through cmd so the audio stream stays binary
-    & cmd /c (($yt -join ' ') + ' | ' + ($mpv -join ' '))
+    if ($Proxy) { $ytArgs += @('--proxy', $Proxy) }
+    $ytArgs += @('--', $Url)
+
+    # 64KB in/out buffers; byte-mode pipe, blocking server writes.
+    $server = [System.IO.Pipes.NamedPipeServerStream]::new(
+        $pipeName,
+        [System.IO.Pipes.PipeDirection]::Out,
+        1,
+        [System.IO.Pipes.PipeTransmissionMode]::Byte,
+        [System.IO.Pipes.PipeOptions]::None,
+        64KB, 64KB)
+
+    $yt = Start-Process -FilePath 'yt-dlp' -ArgumentList $ytArgs `
+             -NoNewWindow -RedirectStandardOutput $inFile `
+             -RedirectStandardError $errFile -PassThru
+
+    # mpv's file protocol cannot open \\.\pipe\ paths (it strips the device
+    # prefix), but the libavformat demuxer can: lavf:// makes mpv pass the
+    # raw pipe path to ffmpeg's file protocol, which handles named pipes.
+    $mpv = $null
+    $mpvArgs = $MpvOptions + @("lavf://$pipePath")
+    try {
+        # mpv inherits this console's stdin: that is what keeps the keyboard
+        # shortcuts alive even though the media data arrives via the pipe.
+        $mpv = Start-Process -FilePath 'mpv' -ArgumentList $mpvArgs `
+                  -NoNewWindow -PassThru
+
+        # Blocking connect with an escape hatch for mpv dying before it opens
+        # the pipe (bad option, missing file, ...).
+        $waitTask = $server.WaitForConnectionAsync()
+        $deadline = [DateTime]::Now.AddSeconds(30)
+        while (-not $waitTask.Wait(100)) {
+            if ($mpv.HasExited -or [DateTime]::Now -gt $deadline) { return }
+        }
+
+        $fs = [System.IO.File]::Open($inFile, 'Open', 'Read', 'ReadWrite')
+        $buf = [byte[]]::new(262144)
+        try {
+            $ytExited = $false
+            while ($true) {
+                $len = $fs.Read($buf, 0, $buf.Length)
+                if ($len -gt 0) { $server.Write($buf, 0, $len); continue }
+                if ($mpv.HasExited) { break }
+                if (-not $ytExited) {
+                    Start-Sleep -Milliseconds 50
+                    $ytExited = -not (Get-Process -Id $yt.Id -ErrorAction SilentlyContinue)
+                }
+                if ($ytExited -and $fs.Read($buf, 0, $buf.Length) -eq 0) { break }
+            }
+            $server.Flush()
+        } catch [System.IO.IOException] {
+            # mpv closed the pipe (user quit) or died mid-stream
+        } finally {
+            $fs.Dispose()
+            # Dispose = release the last writer handle -> mpv sees EOF and can
+            # finish playing whatever it already buffered.
+            try { $server.Dispose() } catch {}
+        }
+
+        $mpv.WaitForExit()
+        if ($mpv.ExitCode -ne 0 -and (Test-Path $errFile)) {
+            $err = (Get-Content $errFile -Raw)
+            if ($err) { Write-Host "yt-dlp: $($err.Trim())" -ForegroundColor Red }
+        }
+    } finally {
+        # Kill the whole tree (yt-dlp may run through a .cmd shim) and wait
+        # for the handles on the temp files to be released before removing.
+        try { if (-not $yt.HasExited) { $yt.Kill($true); $yt.WaitForExit(3000) | Out-Null } } catch {}
+        try { $server.Dispose() } catch {}
+        if ($mpv -and -not $mpv.HasExited) { try { $mpv.Kill($true) } catch {} }
+        Remove-Item -LiteralPath $inFile, $errFile -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Invoke-TingUrl {
+    param([string]$Url)
+    # No proxy needed: play straight through mpv (mpv invokes yt-dlp itself),
+    # stdin stays the console so keyboard control works natively.
+    if (Test-NoProxyUrl $Url) {
+        & mpv --no-video --ytdl-format=worstaudio $Url
+        return
+    }
+    $proxy = Get-ProxyAddr
+    Write-Host "using proxy: $proxy"
+    Invoke-MpvFromYtStream -Url $Url -Proxy $proxy `
+        -Format 'worstaudio' -MpvOptions @('--no-video')
 }
 
 function ting {
-    $proxy = Get-ProxyAddr
     if ($args.Count -ge 1 -and (Test-Path -LiteralPath $args[0] -PathType Leaf)) {
         foreach ($url in (Get-Content -LiteralPath $args[0])) {
             $url = $url.Trim()
-            if ($url) { Invoke-YListen -Url $url -Proxy $proxy }
+            if ($url) { Invoke-TingUrl -Url $url }
         }
         return
     }
     if ($args.Count -ge 1) {
-        Invoke-YListen -Url $args[0] -Proxy $proxy
+        Invoke-TingUrl -Url $args[0]
     }
 }
 
@@ -610,34 +691,16 @@ function kan {
         return 1
     }
     $url = $args[0]
+    $format = 'best[height<=720]/best[height<=480]/best[height<=1080]/best'
+    # No proxy needed: play straight through mpv (mpv invokes yt-dlp itself),
+    # stdin stays the console so keyboard control works natively.
     if (Test-NoProxyUrl $url) {
-        & mpv $url
+        & mpv --ytdl-format=$format $url
         return
     }
     $proxy = Get-ProxyAddr
     Write-Host "using proxy: $proxy"
-    $title = Get-YtMetaTitle -Url $url -Proxy $proxy
-    if (-not $title) {
-        Write-Host 'Failed to fetch metadata'
-        return 1
-    }
-    $mpv = @(
-        'mpv',
-        "--force-media-title=`"$title`"",
-        '--force-seekable=yes',
-        '-'
-    )
-    $yt = @(
-        'yt-dlp', '-q', '--no-warnings',
-        "--proxy=`"$proxy`"",
-        '--cookies-from-browser firefox',
-        '--remote-components', 'ejs:npm',
-        '--format', '"best[height<=720]/best[height<=480]/best[height<=1080]/best"',
-        '--embed-subs',
-        '-o', '-',
-        "`"$url`""
-    )
-    & cmd /c (($yt -join ' ') + ' | ' + ($mpv -join ' '))
+    Invoke-MpvFromYtStream -Url $url -Proxy $proxy -Format $format
 }
 
 # Common yt-dlp options (cookies, remote-components) come from the default
