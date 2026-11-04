@@ -501,7 +501,19 @@ function global:prompt {
         else { $displayPath = '~' + $displayPath.Substring($HOME.Length) }
     }
 
-    $pathPart = "${esc}[38;2;86;156;214m$displayPath$reset"
+    # Working directory segment: painted with the #434c5e background (48 = background,
+    # 2;r;g;b = truecolor) in #88c0d0 text, and closed by the Nerd Font
+    # right_half_circle_thick glyph (U+E0B4). The cap is written after 49 (reset background
+    # only), so it keeps its own background transparent, and it takes #434c5e as foreground,
+    # so it reads as the right edge of the block rather than as a separate character.
+    $pathPart = (@(
+        "${esc}[48;2;67;76;94m"          # block background: #434c5e
+        "${esc}[38;2;136;192;208m"       # block foreground: #88c0d0 text on the block
+        "$displayPath"
+        "${esc}[49m"                     # reset background only -> cap background transparent
+        "${esc}[38;2;67;76;94m"          # cap foreground: same as the block background
+        "`u{E0B4}"
+    ) -join '')
 
     $gitPart = ''
     $gitDirectory = Get-GitDirectory -Path $loc
@@ -516,7 +528,9 @@ function global:prompt {
         else { $statusPart = " ${esc}[38;2;224;108;117m[!]$reset" }
     }
 
-    "$marksStart$pathPart$gitPart$statusPart`n${esc}[38;2;152;195;121m$reset ${marksEnd}"
+    # The trailing $reset closes the background before the newline, otherwise the
+    # terminal keeps painting the block color to the end of the row.
+    "$marksStart$pathPart$gitPart$statusPart$reset`n${esc}[38;2;152;195;121m$reset ${marksEnd}"
 }
 
 
