@@ -195,6 +195,152 @@ local plugins = {
     },
   },
   {
+    'stevearc/conform.nvim',
+    cmd = { "ConformInfo" },
+    keys = {
+      {
+        "<Space>f",
+        function()
+          require("conform").format({ async = true, lsp_fallback = true })
+        end,
+        mode = { "n", "v" },
+        desc = "conform done",
+      },
+    },
+    opts = {
+      formatters_by_ft = {
+        python = { "py_organize", "py_sort", "ruff" },
+        c = { "clang-format" },
+        cpp = { "clang-format" },
+        lua = { "stylua" },
+        go = { "gofmt", "goimports" },
+        kotlin = { "ktfmt" },
+        xml = { "xq_format" },
+        -- download from https://repo1.maven.org/maven2/com/palantir/javaformat/palantir-java-format-native/$VERSION/
+        java = { "palantir-java-format" },
+        html = { "oxfmt" },
+        css = { "oxfmt" },
+        javascript = { "oxfmt" },
+        javascriptreact = { "oxfmt" },
+        typescript = { "oxfmt" },
+        typescriptreact = { "oxfmt", "biome-organize-imports", },
+        jsonc = { "oxfmt" },
+        vue = { "oxfmt" },
+        markdown = { "oxfmt" },
+        http = { "kulala-fmt" },
+        rest = { "kulala-fmt" },
+        json = { "jq" },
+        yaml = { "oxfmt" },
+        toml = { "taplo" },
+        sql = { "sqruff" },
+        sh = { "shfmt" },
+        fish = { "fish_indent" },
+        nginx = { "nginxfmt" },
+        ["*"] = { "trim_whitespace" },
+      },
+      formatters = {
+        ["clang-format"] = {
+          command = "clang-format",
+          args = "-style=file:" .. vim.fn.expand("$HOME/.config/formatter/clang-format.yaml"),
+        },
+        ["stylua"] = {
+          command = "stylua",
+          args = {
+            "--config-path",
+            vim.fn.expand("$HOME/.config/formatter/stylua.toml"),
+            "--stdin-filepath",
+            "$FILENAME",
+            "-",
+          },
+        },
+        ["java_format"] = {
+          command = "clang-format",
+          args = {
+            "-style=file:" .. vim.fn.expand("$HOME/.config/formatter/java-format.yaml"),
+            "$FILENAME",
+          },
+        },
+        ["biome"] = {
+          command = "biome",
+          args = {
+            "format",
+            "--config-path",
+            vim.fn.expand("$HOME/.config/formatter/biome.jsonc"),
+            "--write",
+            "--stdin-file-path",
+            "$FILENAME",
+          },
+        },
+        ["py_organize"] = {
+          command = "ruff",
+          args = {
+            "check",
+            "--fix",
+            "--stdin-filename",
+            "$FILENAME",
+          },
+        },
+        ["py_sort"] = {
+          command = "ruff",
+          args = {
+            "check",
+            "--fix",
+            "--select",
+            "I",
+            "--stdin-filename",
+            "$FILENAME",
+          },
+        },
+        ["ruff"] = {
+          command = "ruff",
+          args = {
+            "format",
+            "--stdin-filename",
+            "$FILENAME",
+          },
+        },
+        ["djlint"] = {
+          command = "djlint",
+          args = {
+            "--reformat",
+            "--profile=django",
+            "--indent=2",
+            "-",
+          },
+        },
+        ["ktfmt"] = {
+          command = "ktfmt",
+          append_args = {
+            "--kotlinlang-style",
+          }
+        },
+        ["xq_format"] = {
+          command = "xq",
+        },
+        ["rumdl"] = {
+          command = "rumdl",
+          args = {
+            "fmt",
+            "-",
+            "--quiet",
+          },
+        },
+      },
+      default_format_opts = {
+        lsp_format = "fallback",
+        stop_after_first = false,
+      },
+      -- format_on_save = {
+        --   lsp_format = "fallback",
+        --   timeout_ms = 300,
+        -- },
+        log_level = vim.log.levels.DEBUG,
+      },
+    init = function ()
+      opt.formatexpr = "v:lua.require'conform'.formatexpr()"
+    end,
+  },
+  {
     "windwp/nvim-autopairs",
     event = "InsertEnter",
     config = true,
@@ -685,4 +831,3 @@ vim.cmd("colorscheme kanagawa")
 vim.api.nvim_set_hl(0, "StatusLine", { fg = "" })
 vim.api.nvim_set_hl(0, "Normal", { bg = "" })
 vim.opt.statusline = '%r %f%m%=%18(%l,%v/%L%)%24(%{&fileformat}%Y%)%9( %{&fileencoding}%)'
-
