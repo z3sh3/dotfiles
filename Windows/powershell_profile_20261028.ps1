@@ -229,28 +229,51 @@ function Set-Proxy {
 }
 
 # Upgrade every installed winget package through the local HTTP proxy.
-# Without -ExcludedIds it falls back to a single `winget upgrade --all`.
-# With -ExcludedIds, winget has no --exclude option for `upgrade --all`, and the
-# table printed by `winget upgrade` cannot be parsed reliably (long names and
-# versions make winget drop the column padding), so the installed ids come from
+# winget has no --exclude option for `upgrade --all`, and the table printed by
+# `winget upgrade` cannot be parsed reliably (long names and versions make
+# winget drop the column padding), so the installed ids come from
 # `winget export` (JSON) and every remaining package is upgraded one by one.
+# That per-id loop is also what makes a per-package proxy choice possible: the
+# packages in -NoProxyIds are upgraded without --proxy.
+# Passing empty arrays to both switch lists falls back to one `upgrade --all`.
 # The --proxy option needs the admin setting ProxyCommandLineOptions to be enabled:
 #   winget settings --enable ProxyCommandLineOptions
 function Update-Winget {
     param(
-        [string[]]$ExcludedIds = @()
+        [string[]]$ExcludedIds,
+        [string[]]$NoProxyIds,
+        [string]$Proxy = 'http://localhost:7897'
     )
 
-    $proxy = 'http://localhost:7897'
+    # Never upgraded through winget: Snipaste is updated from its own portable
+    # build, and Clash Verge brings its own updater (a winget upgrade would also
+    # pick up whatever stale duplicate MSI entry is still registered).
+    if (-not $PSBoundParameters.ContainsKey('ExcludedIds')) {
+        $ExcludedIds = @(
+            'liule.Snipaste'
+            'ClashVergeRev.ClashVergeRev'
+        )
+    }
 
-    if (-not $ExcludedIds) {
-        winget upgrade --all --proxy $proxy --include-unknown --accept-source-agreements
+    # Domestic Tencent/Alibaba clients: they talk to their own vendor servers,
+    # so routing them through the local proxy only adds a hop and slows them down.
+    if (-not $PSBoundParameters.ContainsKey('NoProxyIds')) {
+        $NoProxyIds = @(
+            'Alibaba.QwenWork.CN'          # 千问办公
+            'Tencent.WeChat.Universal'     # WeChat
+            'Tencent.WeType'               # 微信输入法
+            'Tencent.TencentMeeting'       # 腾讯会议
+        )
+    }
+
+    if (-not $ExcludedIds -and -not $NoProxyIds) {
+        winget upgrade --all --proxy $Proxy --include-unknown --accept-source-agreements
         return
     }
 
     $json = Join-Path $env:TEMP 'wgu-export.json'
 
-    winget export -o $json --include-versions --accept-source-agreements --disable-interactivity --proxy $proxy | Out-Null
+    winget export -o $json --include-versions --accept-source-agreements --disable-interactivity --proxy $Proxy | Out-Null
     if (-not (Test-Path $json)) {
         Write-Error "winget export produced no package list at $json"
         return
@@ -260,7 +283,9 @@ function Update-Winget {
         Where-Object { $_ -and $_ -notin $ExcludedIds }
 
     foreach ($id in $ids) {
-        winget upgrade --id $id --exact --proxy $proxy --include-unknown --accept-source-agreements
+        # -in is case-insensitive, matching how winget reports the ids.
+        $proxyArgs = if ($id -in $NoProxyIds) { @() } else { @('--proxy', $Proxy) }
+        winget upgrade --id $id --exact @proxyArgs --include-unknown --accept-source-agreements
     }
 }
 
@@ -618,7 +643,13 @@ function Invoke-MpvFromYtStream {
     # prefix), but the libavformat demuxer can: lavf:// makes mpv pass the
     # raw pipe path to ffmpeg's file protocol, which handles named pipes.
     $mpv = $null
-    $mpvArgs = $MpvOptions + @("lavf://$pipePath")
+    # Start-Process joins -ArgumentList with spaces and adds no quoting, so an
+    # option carrying a space-separated value (e.g. --term-playing-msg) has to
+    # be wrapped here; stray double quotes would break the command line, so
+    # they are folded into single quotes first.
+    $mpvArgs = @($MpvOptions | ForEach-Object {
+        if ($_ -match '[\s"]') { '"' + ($_ -replace '"', "'") + '"' } else { $_ }
+    }) + @("lavf://$pipePath")
     try {
         # mpv inherits this console's stdin: that is what keeps the keyboard
         # shortcuts alive even though the media data arrives via the pipe.
@@ -672,18 +703,62 @@ function Invoke-MpvFromYtStream {
     }
 }
 
+# Resolve what a URL actually contains: one metadata-only yt-dlp run (`-j`)
+# whose first JSON object carries the title and the uploader/channel. The
+# option set mirrors the real stream, so a link that plays always resolves.
+# Best effort: any failure returns '' and playback continues without a title.
+function Get-YtTitle {
+    param([string]$Url, [string]$Proxy = '')
+    $ytArgs = @(
+        '-j', '--no-warnings',
+        '--remote-components', 'ejs:npm',
+        '--remote-components', 'ejs:github',
+        '--cookies-from-browser', 'firefox'
+    )
+    if ($Proxy) { $ytArgs += @('--proxy', $Proxy) }
+    $ytArgs += @('--', $Url)
+    $lines = @()
+    try {
+        # A playlist prints one JSON object per line; the first one is enough
+        # for a name and `-First 1` keeps the lookup to a single request.
+        $lines = @(& yt-dlp @ytArgs 2>$null | Select-Object -First 1)
+    } catch {
+        return ''
+    }
+    if ($lines.Count -eq 0) { return '' }
+    $meta = $null
+    try { $meta = $lines[0] | ConvertFrom-Json } catch { return '' }
+    # Same "title - uploader" shape the fish functions use.
+    $parts = @($meta.title, $meta.uploader) | Where-Object { $_ }
+    if (-not $parts) { return '' }
+    return ($parts -join ' - ')
+}
+
+# mpv arguments that name the media: `--term-playing-msg` prints the resolved
+# title in the terminal the moment playback starts. Without a title the URL is
+# echoed instead, so a silent fallback never looks like a hung command.
+function New-MpvTitleOptions {
+    param([string]$Url, [string]$Proxy = '')
+    $title = Get-YtTitle -Url $Url -Proxy $Proxy
+    if ($title) { return @("--term-playing-msg=$title") }
+    Write-Host "playing: $Url" -ForegroundColor DarkGray
+    return @()
+}
+
 function Invoke-TingUrl {
     param([string]$Url)
     # No proxy needed: play straight through mpv (mpv invokes yt-dlp itself),
     # stdin stays the console so keyboard control works natively.
     if (Test-NoProxyUrl $Url) {
-        & mpv --no-video --ytdl-format=worstaudio $Url
+        $mpvArgs = @('--no-video', '--ytdl-format=worstaudio') + (New-MpvTitleOptions -Url $Url)
+        & mpv @mpvArgs $Url
         return
     }
     $proxy = Get-ProxyAddr
     Write-Host "using proxy: $proxy"
+    $mpvOptions = @('--no-video') + (New-MpvTitleOptions -Url $Url -Proxy $proxy)
     Invoke-MpvFromYtStream -Url $Url -Proxy $proxy `
-        -Format 'worstaudio' -MpvOptions @('--no-video')
+        -Format 'worstaudio' -MpvOptions $mpvOptions
 }
 
 function ting {
@@ -709,12 +784,15 @@ function kan {
     # No proxy needed: play straight through mpv (mpv invokes yt-dlp itself),
     # stdin stays the console so keyboard control works natively.
     if (Test-NoProxyUrl $url) {
-        & mpv --ytdl-format=$format $url
+        $mpvArgs = @("--ytdl-format=$format") + (New-MpvTitleOptions -Url $url)
+        & mpv @mpvArgs $url
         return
     }
     $proxy = Get-ProxyAddr
     Write-Host "using proxy: $proxy"
-    Invoke-MpvFromYtStream -Url $url -Proxy $proxy -Format $format
+    $mpvOptions = (New-MpvTitleOptions -Url $url -Proxy $proxy)
+    Invoke-MpvFromYtStream -Url $url -Proxy $proxy -Format $format `
+        -MpvOptions $mpvOptions
 }
 
 # Common yt-dlp options (cookies, remote-components) come from the default
