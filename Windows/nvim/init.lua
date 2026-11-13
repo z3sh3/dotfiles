@@ -112,10 +112,13 @@ local plugins = {
   },
   {
     "romus204/tree-sitter-manager.nvim",
-    event = "VeryLazy", -- load after startup so parser installs don't wipe the intro screen
+    -- Loaded before the first buffer is read: its `highlight` hook is a FileType autocmd registered
+    -- in setup(), so with `VeryLazy` a .http file opened at startup never got highlighted.
+    event = { "BufReadPre", "BufNewFile" },
     dependencies = {}, -- tree-sitter CLI must be installed system-wide
     config = function()
       require("tree-sitter-manager").setup({
+        highlight = true, -- start vim.treesitter.start() for installed parsers
         ensure_installed = {
           "cpp", "diff", "java", "javadoc", "kotlin", "groovy", "dockerfile", "zig", "go", "gomod", "gosum", "html", "html_tags", "htmldjango", "css", "svelte", "comment", "python", "rust", "sql", "javascript", "jsx", "typescript", "tsx", "embedded_template", "yaml", "toml", "bash", "http", "tmux", "xml", "fish", "awk", "jq", "json", "json5", "printf", "cmake", "csv", "dot", "func", "gotmpl", "graphql", "ini", "jsdoc", "luadoc", "make", "nginx", "regex", "requirements", "ssh_config", "strace", "styled", "templ", "todotxt", "vue", "xresources", "mermaid",
         },
@@ -473,6 +476,29 @@ local plugins = {
       typeStyle = { italic = false, bold = false },
       transparent = true,
       theme = "wave",
+    },
+  },
+  -- Local development copy of rikuesto (loaded from disk, not from GitHub).
+  -- Drop this entry to go back to the published repository spec.
+  {
+    dir = "D:/Project/rikuesto",
+    name = "rikuesto",
+    ft = { "http", "rest" },
+    init = function()
+      -- Neovim maps *.http already; *.rest needs this so ft-loading triggers.
+      vim.filetype.add({ extension = { rest = "http" } })
+    end,
+    opts = {
+      -- The plugin ships with no default keymaps; bind only these three.
+      keymaps = {
+        rr = "<Space>r", -- run the request under the cursor
+        rc = "<Space>c", -- copy the request as a curl command
+        re = "<Space>e", -- pick an environment profile
+      },
+      -- <C-c> cancels the in-flight request (temporary mapping while it runs).
+      -- Set `cancel_key = false` to disable it.
+      cancel_key = "<C-c>",
+      -- log = { level = "debug" }, -- verbose logging while testing
     },
   },
 }
