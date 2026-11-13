@@ -747,6 +747,10 @@ command('Fname',
   function() to_sysreg('%:p') end,
   { desc = "full path file name" }
 )
+command('Editrc',
+  function() vim.cmd.edit(vim.fn.stdpath('config') .. '\\init.lua') end,
+  { desc = "edit init lua config file" }
+)
 -- codewin
 local ft_cmd = {
   python = "python3",
