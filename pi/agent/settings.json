@@ -4,7 +4,7 @@
   "defaultModel": "deepseek-flash",
   "hideThinkingBlock": true,
   "defaultThinkingLevel": "high",
-  "lastChangelogVersion": "1.4.0",
+  "lastChangelogVersion": "1.5.2",
   "theme": "dark",
   "quietStartup": true,
   "packages": [
@@ -19,5 +19,11 @@
     "npm:@pi-kaush/pi-tool-call-markers",
     "npm:pi-web-access",
     "npm:pi-subagents"
-  ]
+  ],
+  "extensionChangelogVersions": {
+    "{\"source\":\"npm:pi-lens\",\"scope\":\"user\"}": "4.3.0",
+    "{\"source\":\"npm:@pi-kaush/pi-tool-call-markers\",\"scope\":\"user\"}": "0.3.11",
+    "{\"source\":\"npm:pi-web-access\",\"scope\":\"user\"}": "0.37.0",
+    "{\"source\":\"npm:pi-subagents\",\"scope\":\"user\"}": "0.76.1"
+  }
 }
