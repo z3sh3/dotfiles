@@ -7,6 +7,15 @@ description: Generate images from text prompts through the ToAPIs async image AP
 
 Text-to-image generation through ToAPIs. One command submits **N independent tasks in parallel**, polls them concurrently, downloads the finished PNGs, and prints the output directory plus each image's description.
 
+## Platform note (Linux)
+
+This skill is a pure **Node 18+** runner with an optional PowerShell front-end. On Linux (this machine) always call `scripts/imagen.mjs` directly with `node`:
+
+- No `pwsh`/`powershell` is installed — ignore `scripts/imagen.ps1`, it only exists for the Windows box sharing this dotfiles tree.
+- Runtime is `node` (verified: v24). No npm packages are required; the script uses global `fetch`.
+- Text encoding is UTF-8 natively, so Chinese prompts, emoji and quotes need no special handling (the encoding workarounds in the `.ps1` are Windows-only).
+- Paths follow POSIX conventions; pass absolute paths with `/`, never Windows `\` separators.
+
 ## When to use
 
 - "generate/draw/render/create an image of ...", "make me a picture/poster/illustration/logo/icon"
@@ -15,67 +24,56 @@ Text-to-image generation through ToAPIs. One command submits **N independent tas
 
 ## Quick start
 
-Run the bundled script with `node` (Node 18+, no dependencies). Resolve the path relative to this skill directory.
+Resolve the runner relative to this skill directory (`~/.pi/agent/skills/imagen/scripts/imagen.mjs`).
 
-On Windows prefer the PowerShell front-end (`scripts/imagen.ps1`); on macOS/Linux use the Node runner directly. Both share one implementation — the `.ps1` is a thin wrapper that fixes Windows argument and encoding handling (see `Windows / PowerShell` below).
-
-### PowerShell (Windows — preferred)
-
-```powershell
-& "<skill-dir>\scripts\imagen.ps1" -Prompt "a glass teapot on marble, soft studio light" -Name teapot
-```
-
-Multiple independent prompts (submitted concurrently):
-
-```powershell
-& "<skill-dir>\scripts\imagen.ps1" `
-  -Prompt "cyberpunk city at night, neon rain","same city at sunrise, warm haze" `
-  -Name cyber-city,cyber-dawn -Size 16:9 -Resolution 2k -Out .\generated-images\scene
-```
-
-When invoking through `-File` (from cmd.exe, bash, a CI step or another tool), PowerShell cannot bind a real array — use `-PromptList` with `|` as the separator:
-
-```bat
-powershell -NoProfile -ExecutionPolicy Bypass -File imagen.ps1 -PromptList "a cat|a dog" -NameList "cat|dog" -Size 1:1 -Out .\out
-```
-
-### Node directly (macOS / Linux / any shell)
+Single image:
 
 ```bash
-node "<skill-dir>/scripts/imagen.mjs" --prompt "a glass teapot on marble, soft studio light" --name teapot
+node ~/.pi/agent/skills/imagen/scripts/imagen.mjs \
+  --prompt "a glass teapot on marble, soft studio light" --name teapot
 ```
 
 Multiple independent prompts (submitted concurrently):
 
 ```bash
-node "<skill-dir>/scripts/imagen.mjs" \
+node ~/.pi/agent/skills/imagen/scripts/imagen.mjs \
   --prompt "cyberpunk city at night, neon rain" --name cyber-city \
   --prompt "same city at sunrise, warm haze" --name cyber-dawn \
   --size 16:9 --resolution 2k --out ./generated-images/scene
 ```
 
-Structured input, best when prompts are long or need per-image settings (works from any shell, and avoids all argv quoting problems):
+Structured input, best when prompts are long or need per-image settings (no shell quoting problems at all):
 
 ```bash
-node "<skill-dir>/scripts/imagen.mjs" --json '[
+node ~/.pi/agent/skills/imagen/scripts/imagen.mjs --json '[
   {"name":"cover","prompt":"...","size":"3:4","resolution":"2k"},
   {"name":"inset","prompt":"...","size":"1:1"}
 ]' --out ./generated-images/book
 ```
 
-## Windows / PowerShell
+From a prompt file (one per line, optional `name :: prompt`), which avoids long argv entirely:
 
-`scripts/imagen.ps1` maps every runner flag to a native parameter: `-Prompt -Name -PromptList -NameList -Json -PromptFile -Out -Model -FallbackModel -Size -Resolution -Quality -Background -Count -Reference -Concurrency -QueueCapacity -MaxRequeues -Timeout -Interval -Retries -KeepUrls -JsonOutput -Check -ListModels -DryRun -NodePath -ExtraArgs`. Run it with no arguments to print help.
+```bash
+node ~/.pi/agent/skills/imagen/scripts/imagen.mjs --file ./prompts.txt --out ./generated-images/batch
+```
 
-The wrapper exists for three Windows-specific reasons:
+Long Chinese prompts: single-quote them in bash. If a prompt contains single quotes, prefer `--json @prompts.json` or `--file` over fighting shell escaping.
 
-1. **Argument encoding** — Chinese prompts, emoji and quotes get mangled when passed as native argv from PowerShell 5.1. The wrapper writes prompts into a temporary UTF-8 JSON file and hands the runner `--json @file`, so payloads never travel through argv. It also deletes the temp file afterwards.
-2. **Console encoding** — PS 5.1 defaults to an OEM codepage (this machine: IBM437), which garbles Chinese in the printed report. The wrapper switches console input/output to UTF-8, so descriptions and filenames survive.
-3. **Exit codes** — auth/parameter failures make the script exit non-zero (`$LASTEXITCODE` is propagated), so CI can fail the build.
+## First-time setup on this machine
 
-Array binding caveat: `-Prompt "a","b"` only works when invoked from inside PowerShell. Through `-File`, PowerShell merges them into the single string `a,b`, which would corrupt your prompt — that is exactly why `-PromptList "a|b"` exists. Never try to work around it by relying on comma splitting inside a prompt: commas are legitimate prompt content.
+No API key is configured yet, and there is no `secrets/` directory. Create one **outside the dotfiles git repository** — `~/.pi/agent` is a symlink to `~/.dotfiles/pi/agent`, so a key stored under it can be committed by accident.
 
-Verified on Windows PowerShell 5.1 and PowerShell 7 with Chinese prompts end-to-end.
+```bash
+install -d -m 700 ~/.config/pi/secrets
+umask 077
+cat > ~/.config/pi/secrets/imagen.json <<'JSON'
+{ "api_key": "sk-...", "base_url": "https://toapis.cn" }
+JSON
+chmod 600 ~/.config/pi/secrets/imagen.json
+node ~/.pi/agent/skills/imagen/scripts/imagen.mjs --check   # expect HTTP 200
+```
+
+`--check` prints the resolved path, the masked key and the auth status, and generates nothing. An environment variable (`IMAGEN_API_KEY`) works too, but a file with mode `0600` is better than a secret sitting in shell history or a shell profile committed to the same repo.
 
 ## Workflow
 
@@ -137,7 +135,11 @@ The run summary prints a `Rate limiting: N requeued (peak queue depth x/y), M re
 The API key is **never stored in this skill's files**. The script resolves it in this order:
 
 1. `IMAGEN_API_KEY` or `TOAPIS_API_KEY` environment variable
-2. secrets file — `IMAGEN_SECRETS_FILE` if set, else `~/.pi/agent/secrets/imagen.json`
+2. secrets file, first existing match:
+   1. `IMAGEN_SECRETS_FILE` (explicit override)
+   2. `$XDG_CONFIG_HOME/pi/secrets/imagen.json` → default `~/.config/pi/secrets/imagen.json` (**recommended on Linux**)
+   3. `<agent>/secrets/imagen.json` → `~/.pi/agent/secrets/imagen.json` (legacy; inside the dotfiles repo on this machine)
+   4. `~/.pi/secrets/imagen.json`
 
 Secrets file format:
 
@@ -145,27 +147,28 @@ Secrets file format:
 { "api_key": "sk-...", "base_url": "https://toapis.cn" }
 ```
 
-The secrets file is a plaintext file whose protection is its Windows ACL — inheritance is removed so only the owning user can read it:
+Permissions on Linux (there is no ACL trick like Windows `icacls`): the key's protection is directory mode `0700` plus file mode `0600`, owned by you. Harden both, and make sure the file never lands in a tracked git work tree:
 
-```bat
-icacls "%USERPROFILE%\.pi\agent\secrets" /inheritance:r /grant:r "%USERNAME%:(OI)(CI)(F)"
-icacls "%USERPROFILE%\.pi\agent\secrets\imagen.json" /inheritance:r /grant:r "%USERNAME%:(F)"
+```bash
+install -d -m 700 ~/.config/pi/secrets
+chmod 600 ~/.config/pi/secrets/imagen.json
+ls -ld ~/.config/pi/secrets ~/.config/pi/secrets/imagen.json   # expect drwx------ / -rw-------
 ```
 
 Rules when handling the key:
 
 - Never print, echo, log, or paste the full key. `--check` prints a masked form on purpose; keep it that way.
-- Never write the key into a prompt, an image, a commit, or a new file outside `secrets/`.
-- Do not put the key on a command line if avoidable — prefer the environment variable or the secrets file (command lines leak into shell history and process listings).
-- Rotating: replace `api_key` in the secrets file, or run `node scripts/imagen.mjs --check` afterwards to confirm the new key authenticates (HTTP 200).
+- Never write the key into a prompt, an image, a commit, or a new file outside the secrets directory.
+- Do not put the key on a command line if avoidable — command lines leak into shell history, `ps` output and `/proc/*/cmdline`. Prefer the secrets file; if you must use an environment variable, set it for the single command (`IMAGEN_API_KEY=... node ...`) rather than exporting it in a tracked dotfile.
+- Rotating: replace `api_key` in the secrets file, then run `node scripts/imagen.mjs --check` to confirm the new key authenticates (HTTP 200).
 
-On a shared or backed-up machine, remember the ACL only stops other local accounts and copies of the file elsewhere stay decryptable — use DPAPI encryption or an environment variable if that matters.
+On a shared box, remember file modes only stop other local accounts — backups, `~/.config` sync tools and shell snapshots can still carry the plaintext elsewhere. Use a password manager, `gpg`, or a system keyring if that matters.
 
 ## Useful flags
 
-`--out <dir>` · `--model` · `--fallback-model` · `--size` · `--resolution` · `--quality` · `--background transparent` · `--count <n>` (repeat a prompt as separate parallel tasks) · `--reference <url>` · `--concurrency <n>` (default 10) · `--queue-capacity <n>` (default 50, 0 = fail fast) · `--max-requeues <n>` (default 10) · `--timeout <sec>` · `--keep-urls` · `--json-output` · `--check` (verify credentials, no generation) · `--list-models` · `--dry-run`
+`--out <dir>` · `--model` · `--fallback-model` · `--size` · `--resolution` · `--quality` · `--background transparent` · `--count <n>` (repeat a prompt as separate parallel tasks) · `--reference <url>` · `--concurrency <n>` (default 10) · `--queue-capacity <n>` (default 50, 0 = fail fast) · `--max-requeues <n>` (default 10) · `--timeout <sec>` · `--keep-urls` · `--json-output` · `--check` (verify credentials, no generation) · `--list-models` · `--dry-run` (print the resolved plan and output dir without calling the API — the cheapest way to validate quoting/paths).
 
-PowerShell parameter names are the CamelCase equivalents (`-Out`, `-Model`, `-Size`, `-Resolution`, `-Count`, `-Concurrency`, `-QueueCapacity`, `-MaxRequeues`, `-Check`, ...), plus `-PromptList` / `-NameList` for `-File` style invocation. Both front-ends call the same runner, so behaviour and output format are identical.
+`--dry-run` is the Linux-friendly smoke test: it exercises argument parsing, slug generation, UTF-8 handling and output-path resolution without consuming API quota.
 
 ## Reporting (required)
 
@@ -181,11 +184,23 @@ Keep the existing numbered list format from the script output; it already contai
 ## Example report
 
 ```
-Output directory: D:\tmp\generated-images\2026-02-14T09-31-02
+Output directory: /home/zeng/tmp/generated-images/2026-02-14T09-31-02
 Model: gpt-image-2.5-sunburst | size: 16:9 | resolution: 2k | elapsed: 71.4s
 
-1. D:\tmp\generated-images\2026-02-14T09-31-02\01-cyber-city.png
+1. /home/zeng/tmp/generated-images/2026-02-14T09-31-02/01-cyber-city.png
    description: cyberpunk city at night, neon rain, cinematic wide shot
-2. D:\tmp\generated-images\2026-02-14T09-31-02\02-cyber-dawn.png
+2. /home/zeng/tmp/generated-images/2026-02-14T09-31-02/02-cyber-dawn.png
    description: same city at sunrise, warm haze, empty streets
 ```
+
+## Appendix: Windows / PowerShell (not used on Linux)
+
+`scripts/imagen.ps1` exists only for the Windows machine that shares this dotfiles tree. Both front-ends call the same Node runner, so behaviour and output format are identical. It exists because PowerShell 5.1 mangles non-ASCII argv (fixed by handing prompts over as a temp UTF-8 JSON file) and defaults its console to an OEM codepage.
+
+```powershell
+& "<skill-dir>\scripts\imagen.ps1" -Prompt "a glass teapot on marble, soft studio light" -Name teapot
+```
+
+Parameters: `-Prompt -Name -PromptList -NameList -Json -PromptFile -Out -Model -FallbackModel -Size -Resolution -Quality -Background -Count -Reference -Concurrency -QueueCapacity -MaxRequeues -Timeout -Interval -Retries -KeepUrls -JsonOutput -Check -ListModels -DryRun -NodePath -ExtraArgs`. Through `-File`, use `-PromptList "a cat|a dog"` instead of `-Prompt "a cat","a dog"` (arrays do not bind through `-File`).
+
+On Linux do not invoke this file: `pwsh` is not installed, and the Node runner covers every flag.

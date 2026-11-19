@@ -23,9 +23,9 @@ import { fileURLToPath } from 'node:url';
 const DEFAULT_BASE_URL = 'https://toapis.cn';
 // Credentials are NOT embedded in this file. Resolution order:
 //   1. IMAGEN_API_KEY / TOAPIS_API_KEY environment variable
-//   2. a secrets file: IMAGEN_SECRETS_FILE, else <agent>/secrets/imagen.json,
-//      else ~/.pi/agent/secrets/imagen.json  ->  {"api_key": "...", "base_url": "..."}
-// Keep the secrets file readable only by the current user (see SKILL.md).
+//   2. a secrets file: IMAGEN_SECRETS_FILE, else the platform default path
+//      (see secretsCandidates)  ->  {"api_key": "...", "base_url": "..."}
+// Keep the secrets file readable only by the current user (mode 0600, dir 0700).
 // 'gpt-image-2.5' is a SERIES label, rejected with 403. The concrete models are
 // gpt-image-2.5-flare / gpt-image-2.5-sunburst. Map aliases to real model ids.
 const MODEL_ALIASES = {
@@ -47,12 +47,41 @@ const DEFAULT_QUEUE_CAPACITY = 50;
 const DEFAULT_MAX_REQUEUES = 10;
 const SKILL_DIR = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 
+/**
+ * Secrets file search order.
+ *
+ * On Linux/macOS the preferred location is $XDG_CONFIG_HOME/pi/secrets/imagen.json
+ * (~/.config/pi/secrets/imagen.json). That path is deliberately OUTSIDE any dotfiles
+ * git repository: ~/.pi/agent is commonly a symlink into a tracked dotfiles tree, so a
+ * plaintext key stored there is one careless `git add -A` away from being committed.
+ * The agent-relative paths stay in the list for backwards compatibility (Windows and
+ * existing installs).
+ */
 function secretsCandidates() {
   const list = [];
   if (process.env.IMAGEN_SECRETS_FILE) list.push(path.resolve(process.env.IMAGEN_SECRETS_FILE));
+  if (process.platform !== 'win32') {
+    const configHome = process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config');
+    list.push(path.join(configHome, 'pi', 'secrets', 'imagen.json'));
+  }
   list.push(path.resolve(SKILL_DIR, '..', '..', 'secrets', 'imagen.json'));
   list.push(path.resolve(os.homedir(), '.pi', 'agent', 'secrets', 'imagen.json'));
+  list.push(path.resolve(os.homedir(), '.pi', 'secrets', 'imagen.json'));
   return [...new Set(list)];
+}
+
+/** Human-readable setup hint for the current platform. */
+function secretsSetupHint() {
+  const target = secretsCandidates()[0];
+  if (process.platform === 'win32') {
+    return `create ${target} with {"api_key": "sk-..."} restricted to the current user.`;
+  }
+  const dir = path.dirname(target);
+  return (
+    `create ${target} with {"api_key": "sk-..."} and keep it private:\n` +
+    `  install -d -m 700 ${dir}\n` +
+    `  (write the file with mode 600, e.g. chmod 600 ${target})`
+  );
 }
 
 const maskKey = (key) => (key.length <= 12 ? '***' : `${key.slice(0, 7)}...${key.slice(-4)}`);
@@ -76,11 +105,7 @@ function loadCredentials() {
     if (!apiKey) throw new Error(`secrets file ${file} does not define api_key`);
     return { apiKey, baseUrl: normalize(envBase || parsed.base_url || parsed.baseUrl), source: file };
   }
-  throw new Error(
-    'No API key found. Set IMAGEN_API_KEY, or create ' +
-      secretsCandidates()[0] +
-      ' with {"api_key": "sk-..."} restricted to the current user.',
-  );
+  throw new Error(`No API key found. Set IMAGEN_API_KEY, or\n  ${secretsSetupHint()}`);
 }
 
 const USAGE = `
@@ -130,7 +155,9 @@ Environment:
   IMAGEN_SECRETS_FILE               Override the secrets file path.
 
 Credentials are never stored in this script. Default secrets file:
-  <agent>/secrets/imagen.json  ->  {"api_key": "sk-...", "base_url": "${DEFAULT_BASE_URL}"}
+  ${secretsCandidates()[0]}
+  ->  {"api_key": "sk-...", "base_url": "${DEFAULT_BASE_URL}"}
+  (mode 0600; the file must not live in a git repository - see SKILL.md)
 `;
 
 function toInt(value, fallback) {

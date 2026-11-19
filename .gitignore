@@ -5,3 +5,6 @@ helix/runtime
 config/fish/completions/*
 config/nvim/lazy-lock.json
 TODO.md
+
+# Local plaintext secrets for pi skills (api keys) - never commit
+pi/agent/secrets/
