@@ -1,53 +1,72 @@
 #!/bin/sh
-draw() {
-    path="$(readlink -f -- "$1" | sed 's/\\/\\\\/g;s/"/\\"/g')"
-    printf '{"action":"add","identifier":"preview","x":%d,"y":%d,"width":%d,"height":%d,"scaler":"contain","scaling_position_x":0.5,"scaling_position_y":0.5,"path":"%s"}\n' \
-        "$x" "$y" "$width" "$height" "$path" >"$FIFO_UEBERZUG"
-    exit 1
-}
-
-hash() {
-    cache="$HOME/.cache/lf/$(stat --printf '%n\0%i\0%F\0%s\0%W\0%Y' -- "$(readlink -f -- "$1")" | sha256sum | cut -d' ' -f1).jpg"
-}
-
-cache() {
-    if ! [ -f "$cache" ]; then
-        dir="$(dirname -- "$cache")"
-        [ -d "$dir" ] || mkdir -p -- "$dir"
-        "$@"
-    fi
-    draw "$cache"
-}
-
+# lf previewer (ueberzug image/video previews + text fallback).
+#
+# Fixes vs. the previous version:
+#  * image previews are one bounded conversion into the cache, instead of
+#    "identify for orientation + maybe convert + else hand the original file to
+#    the renderer": one magick process instead of two, and the renderer never
+#    decodes a 4K/8K file (bounded memory, faster per keystroke).
+#  * FIFO writes are bounded by `timeout`: if the renderer is dead or stalled,
+#    this process can no longer block forever and keep the FIFO's write end
+#    open (that is what kept orphaned ueberzugpp processes - and their X11
+#    overlays - alive after lf exited).
 file="$1"
 width="$2"
 height="$3"
 x="$4"
 y="$5"
 
+cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}/lf"
+# Longest side of the generated thumbnail, in pixels. Keep it >= the widest
+# preview area you use (cells * cell_width_px) to avoid upscaling.
+thumb_px=1600
+
+# Non-blocking single-line command to the renderer's FIFO.
+send() {
+    [ -n "${FIFO_UEBERZUG-}" ] && [ -p "$FIFO_UEBERZUG" ] || return 0
+    printf '%s\n' "$1" |
+        timeout 1 sh -c 'cat >"$1"' _ "$FIFO_UEBERZUG" 2>/dev/null || :
+}
+
+draw() { # $1 = file to display
+    path=$(readlink -f -- "$1")
+    path=$(printf '%s' "$path" | sed 's/\\/\\\\/g; s/"/\\"/g')
+    send "$(printf '{"action":"add","identifier":"preview","x":%d,"y":%d,"width":%d,"height":%d,"scaler":"contain","scaling_position_x":0.5,"scaling_position_y":0.5,"path":"%s"}' \
+        "$x" "$y" "$width" "$height" "$path")"
+    exit 1
+}
+
+cache_path() { # content-addressed by path/inode/size/mtime
+    key=$(stat --printf '%n\0%i\0%s\0%Y' -- "$(readlink -f -- "$1")" 2>/dev/null |
+        sha256sum | cut -d' ' -f1)
+    [ -n "$key" ] || return 1
+    printf '%s/%s.jpg' "$cache_dir" "$key"
+}
+
 case "$(file -Lb --mime-type -- "$file")" in
 image/*)
-    if [ -p "$FIFO_UEBERZUG" ]; then
-        # ueberzug doesn't handle image orientation correctly
-        orientation="$(magick identify -format '%[orientation]\n' -- "$file[0]")"
-        if [ -n "$orientation" ] &&
-            [ "$orientation" != Undefined ] &&
-            [ "$orientation" != TopLeft ]; then
-            hash "$file"
-            cache magick -- "$file[0]" -auto-orient "$cache"
-        else
-            draw "$file"
+    if [ -p "${FIFO_UEBERZUG-}" ] && cache=$(cache_path "$file"); then
+        if [ ! -f "$cache" ]; then
+            mkdir -p -- "$cache_dir"
+            # one pass: first frame, honour EXIF orientation, downscale, encode
+            magick -- "$file[0]" -auto-orient -resize "${thumb_px}x${thumb_px}>" \
+                -quality 82 "$cache" >/dev/null 2>&1 || :
         fi
+        [ -s "$cache" ] && draw "$cache"
     fi
     ;;
 video/*)
-    if [ -p "$FIFO_UEBERZUG" ]; then
-        hash "$file"
-        cache ffmpegthumbnailer -i "$file" -o "$cache" -s 0 -q 6 -t 10%
+    if [ -p "${FIFO_UEBERZUG-}" ] && cache=$(cache_path "$file"); then
+        if [ ! -f "$cache" ]; then
+            mkdir -p -- "$cache_dir"
+            ffmpegthumbnailer -i "$file" -o "$cache" -s "$thumb_px" -q 6 -t 10% \
+                >/dev/null 2>&1 || :
+        fi
+        [ -s "$cache" ] && draw "$cache"
     fi
     ;;
 text/*)
-    exec cat "$file"
+    exec cat -- "$file"
     ;;
 esac
 

@@ -1,29 +1,114 @@
 #!/bin/sh
-set -euf
+# lf + ueberzugpp wrapper with reliable teardown.
+#
+# Fixes vs. the lf-wiki version:
+#  * teardown never relies on FIFO EOF: the renderer is shut down through its own
+#    control socket (which also makes it remove its global tmux hooks and X11
+#    windows) and, if that does not actually work, it is escalated to SIGKILL.
+#    The old version left orphaned `ueberzug layer` processes - with their X11
+#    overlay windows still mapped over the pane - whenever a previewer was
+#    blocked writing to the FIFO.
+#  * cleanup runs on HUP/INT/TERM too (kill-pane, closed terminal, ^C), so the
+#    FIFO and the pid file no longer leak.
+#  * the renderer no longer inherits the pane tty as stdout.
+#  * --no-cache: the (previously unbounded) in-RAM resized-image cache is off.
+#  * leftovers of sessions that were SIGKILLed are reaped at startup.
+set -eu
 
-if [ -n "${DISPLAY-}" ] && [ -z "${FIFO_UEBERZUG-}" ]; then
-    export FIFO_UEBERZUG="${TMPDIR:-/tmp}/lf-ueberzug-$$"
-
-    cleanup() {
-        exec 3>&-
-        rm -- "$FIFO_UEBERZUG"
-    }
-
-    mkfifo -- "$FIFO_UEBERZUG"
-    # Execute ueberzug in a loop in case it crashes. Ueberzug dies if its
-    # associated window is closed. This breaks image previews when using tmux and
-    # reattaching to an existing session.
-    while [ -p "$FIFO_UEBERZUG" ] && ! ueberzug layer -s <"$FIFO_UEBERZUG"; do :; done &
-    # Open the FIFO for writing. FIFO readers receive an EOF once all writers
-    # have closed their respective file descriptors. Holding a file descriptor
-    # will effectively keep ueberzug alive as long as lf lives.
-    exec 3>"$FIFO_UEBERZUG"
-    trap cleanup EXIT
-
-    # Start lf without passing in the file descriptor. This is done to avoid the
-    # lf server being passed the file descriptor, which would cause ueberzug to
-    # live longer than is strictly necessary.
-    lf "$@" 3>&-
-else
+# No X display, or already inside a wrapped session -> plain lf.
+if [ -z "${DISPLAY-}" ] || [ -n "${FIFO_UEBERZUG-}" ]; then
     exec lf "$@"
 fi
+
+TMPD="${TMPDIR:-/tmp}"
+export FIFO_UEBERZUG="$TMPD/lf-ueberzug-$$"
+PIDFILE="$FIFO_UEBERZUG.pid"
+CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/lf"
+supervisor=''
+mkdir -p -- "$CACHE_DIR"
+
+# --- reap leftovers of hard-killed sessions (pid-encoded names, so this is
+# --- safe to run while other lw instances are alive) -----------------------
+for _s in "$TMPD"/ueberzugpp-*.socket; do
+    [ -S "$_s" ] || continue
+    _p=${_s##*/ueberzugpp-}
+    _p=${_p%.socket}
+    kill -0 "$_p" 2>/dev/null || rm -f -- "$_s"
+done
+for _f in "$TMPD"/lf-ueberzug-*; do
+    case $_f in *.pid) continue ;; esac
+    [ -p "$_f" ] || continue
+    _p=${_f##*/lf-ueberzug-}
+    kill -0 "$_p" 2>/dev/null || rm -f -- "$_f" "$_f.pid"
+done
+find "$CACHE_DIR" -maxdepth 1 -type f -mtime +30 -delete 2>/dev/null || :
+
+# --- teardown --------------------------------------------------------------
+ub_socket() { printf '%s' "$TMPD/ueberzugpp-$1.socket"; }
+
+ub_shutdown() { # $1 = renderer pid
+    _pid=$1
+    [ -n "$_pid" ] || return 0
+    kill -0 "$_pid" 2>/dev/null || return 0
+
+    # preferred: ask it to quit; it removes its X11 windows and tmux hooks
+    if [ -S "$(ub_socket "$_pid")" ]; then
+        timeout 2 ueberzugpp cmd -s "$(ub_socket "$_pid")" -a exit >/dev/null 2>&1 || :
+    fi
+    # ... and verify: the command "succeeds" even if the renderer is wedged
+    for _i in 1 2 3 4 5 6 7 8; do
+        kill -0 "$_pid" 2>/dev/null || return 0
+        sleep 0.1
+    done
+
+    kill -TERM "$_pid" 2>/dev/null || :
+    for _i in 1 2 3; do
+        kill -0 "$_pid" 2>/dev/null || return 0
+        sleep 0.1
+    done
+
+    kill -CONT "$_pid" 2>/dev/null || :   # a stopped renderer needs this
+    kill -KILL "$_pid" 2>/dev/null || :
+}
+
+ub_drop_hooks() { # defence for SIGKILLed renderers: drop hooks naming a dead pid
+    _pid=$1
+    [ -n "$_pid" ] || return 0
+    for _h in client-session-changed session-window-changed window-layout-changed; do
+        tmux show-hooks -g "$_h" 2>/dev/null |
+            sed -n "s/^\($_h\[[0-9]*\]\).*ueberzugpp.*[^0-9]$_pid[^0-9].*/\1/p" |
+            while IFS= read -r _name; do
+                tmux set-hook -gu "$_name" >/dev/null 2>&1 || :
+            done
+    done
+}
+
+cleanup() {
+    trap - EXIT HUP INT TERM
+    exec 3>&- 2>/dev/null || :              # release our FIFO write end
+    _pid=''
+    if [ -s "$PIDFILE" ]; then _pid=$(cat -- "$PIDFILE" 2>/dev/null) || :; fi
+    kill "$supervisor" 2>/dev/null || :     # stop restarts before shutting down
+    ub_shutdown "$_pid"
+    ub_drop_hooks "$_pid"
+    rm -f -- "$PIDFILE" "$FIFO_UEBERZUG"
+}
+on_signal() { cleanup; exit 130; }
+trap cleanup EXIT
+trap on_signal HUP INT TERM
+
+mkfifo -- "$FIFO_UEBERZUG"
+
+# Supervisor: restart the renderer if it dies on its own (it dies with its X
+# window, e.g. after a tmux detach/reattach). It publishes its pid for cleanup.
+(
+    while [ -p "$FIFO_UEBERZUG" ]; do
+        ueberzug layer -s --no-cache <"$FIFO_UEBERZUG" >/dev/null 2>&1 &
+        printf '%s\n' "$!" >"$PIDFILE"
+        wait "$!" >/dev/null 2>&1 || :
+    done
+) &
+supervisor=$!
+
+exec 3>"$FIFO_UEBERZUG"                     # keep the FIFO open between previews
+lf "$@" 3>&-

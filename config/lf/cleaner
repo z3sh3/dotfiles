@@ -1,2 +1,7 @@
 #!/bin/sh
-[ -p "$FIFO_UEBERZUG" ] && printf '{"action":"remove","identifier":"preview"}\n' >"$FIFO_UEBERZUG"
+# Non-blocking removal of the current preview (see previewer: never block on
+# the FIFO, or we keep the renderer and its overlay alive forever).
+[ -n "${FIFO_UEBERZUG-}" ] && [ -p "$FIFO_UEBERZUG" ] || exit 0
+printf '{"action":"remove","identifier":"preview"}\n' |
+    timeout 1 sh -c 'cat >"$1"' _ "$FIFO_UEBERZUG" 2>/dev/null || :
+exit 0
