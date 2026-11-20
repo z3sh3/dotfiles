@@ -32,7 +32,7 @@ function fish_mode_prompt
             echo -n "  "
         case default
             set_color --bold $default_color
-            echo -n "  "
+            echo -n " 󰇥 "
         case visual
             set_color --bold $visual_color
             echo -n "  "
