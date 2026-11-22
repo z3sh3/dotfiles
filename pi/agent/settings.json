@@ -4,7 +4,7 @@
   "defaultModel": "deepseek-flash",
   "hideThinkingBlock": true,
   "defaultThinkingLevel": "high",
-  "lastChangelogVersion": "1.5.2",
+  "lastChangelogVersion": "1.6.0",
   "theme": "dark",
   "quietStartup": true,
   "packages": [
@@ -21,9 +21,11 @@
     "npm:pi-subagents"
   ],
   "extensionChangelogVersions": {
-    "{\"source\":\"npm:pi-lens\",\"scope\":\"user\"}": "4.3.0",
+    "{\"source\":\"npm:pi-lens\",\"scope\":\"user\"}": "4.5.0",
     "{\"source\":\"npm:@pi-kaush/pi-tool-call-markers\",\"scope\":\"user\"}": "0.3.11",
-    "{\"source\":\"npm:pi-web-access\",\"scope\":\"user\"}": "0.37.0",
-    "{\"source\":\"npm:pi-subagents\",\"scope\":\"user\"}": "0.76.1"
+    "{\"source\":\"npm:pi-web-access\",\"scope\":\"user\"}": "0.48.0",
+    "{\"source\":\"npm:pi-subagents\",\"scope\":\"user\"}": "0.89.2",
+    "{\"source\":\"npm:@narumitw/pi-goal\",\"scope\":\"user\"}": "0.55.4",
+    "{\"source\":\"npm:@narumitw/pi-plan-mode\",\"scope\":\"user\"}": "0.60.3"
   }
 }
