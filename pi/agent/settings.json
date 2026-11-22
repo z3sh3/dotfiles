@@ -1,5 +1,6 @@
 {
   "externalEditor": "nvim",
+  "tuiMode": "regular",
   "defaultProvider": "deepseek",
   "defaultModel": "deepseek-flash",
   "hideThinkingBlock": true,
