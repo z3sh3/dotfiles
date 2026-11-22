@@ -20,3 +20,4 @@ models.json
 trust.json
 pi-subagents/
 web-search-cache/
+pi-web-access/
