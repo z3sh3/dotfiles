@@ -64,4 +64,3 @@ vim.lsp.config("vtsls", {
   filetypes = { "typescript", "javascript", "javascriptreact", "typescriptreact", "vue" },
 })
 vim.lsp.enable(installed_servers)
-vim.lsp.enable("zls")
